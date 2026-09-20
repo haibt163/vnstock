@@ -4,6 +4,25 @@
 
 OMP 2.0 is the project's governance layer for agent-driven engineering. It does not replace the application's runtime checks, tests, or human review. Its job is to keep implementation work evidence-driven, auditable, and resistant to false-positive diagnoses.
 
+## Dependency provisioning and standard smoke gate
+
+Agents receive a pre-provisioned workspace. The harness/operator installs dependencies from the lockfile before the agent starts (for npm projects, use npm ci), confirms the expected runtime/package manager, and confirms the standard gates can start.
+
+Once handed over, agents do not routinely run npm install, npm ci, npx package acquisition, or dependency repair. If the workspace is missing a required dependency, report ENVIRONMENT BLOCKED and stop that line of investigation. Reinstall only when the task explicitly changes dependencies or the Chief Engineer requests it.
+
+The default implementation smoke gate is exactly:
+
+1. npm run typecheck
+2. npm run lint
+3. npm test
+4. npm run build
+
+All four should pass before handoff. The dev server is NOT part of the default smoke gate. Do not make agents start npm run dev, vite dev, npx vite, or equivalent merely to prove a code change. Vite treats dev and production build as separate modes, and the build is the production compilation path. citeturn0search1turn0search2
+
+For VNStock, npm run build is the project production-build gate. Vercel separately executes the configured build during deployment. citeturn0search3turn0search5
+
+Browser/runtime checks are exception-based: use them only for a UI/runtime-specific investigation, deployment verification, or when the Chief Engineer explicitly requests them. They must never become an open-ended port/server troubleshooting exercise.
+
 ## Authority and roles
 
 - **Project Owner:** Human owner of VNStock.
@@ -35,29 +54,25 @@ For any failure:
 
 ### Vite/ENOENT canonical example
 
-For this project:
+For this project, npm run dev intentionally launches Vite through scripts/with-app-env.mjs.
 
-- `npm run dev` invokes `node scripts/with-app-env.mjs vite dev ...`.
-- A `spawn vite ENOENT` message does **not** by itself prove `with-app-env.mjs` is defective.
-- First establish whether the local Vite executable exists and whether direct Vite invocation works.
-- Do not use `npx vite` as the first diagnostic if the intent is to test the project's locked dependency tree, because `npx` can offer to download a missing package and mask the local dependency state.
-- Preferred diagnostic order:
-  1. `npm ci`
-  2. verify `node_modules/.bin/vite`
-  3. run the local Vite executable directly
-  4. run `npm run dev`
-  5. compare results
-- If direct Vite works but the npm wrapper fails with `spawn vite ENOENT`, then investigate executable resolution/process-spawning in the wrapper.
-- If direct Vite also fails, treat the wrapper as unproven and diagnose dependency/install state first.
-- Never enter an install/reinstall loop without new evidence.
+A spawn vite ENOENT message is not by itself proof that the wrapper is defective. Under OMP 2.0, dependency provisioning happens upstream before the agent receives the workspace. An agent should therefore NOT begin an install/reinstall loop because a dev server cannot start.
 
-This is a general rule: when a wrapper launches a child process, independently verify the child before modifying the wrapper.
+If the task does not require runtime/browser verification, leave the dev server alone and use the four standard smoke gates.
+
+If runtime investigation is explicitly required, the harness/operator first verifies the provisioned environment. Only then should the agent investigate wrapper/process-spawning behavior.
+
+Do not use package-acquiring npx vite as a routine diagnostic because it can introduce a different Vite installation and obscure the locked dependency state.
+
+Never enter an install/reinstall/edit/retry loop without new evidence.
+
+General rule: verify the environment once upstream; diagnose application code downstream.
 
 ## Verification hierarchy
 
 Use the narrowest reliable evidence first, then widen:
 
-**unit/fixture evidence → targeted integration → typecheck/lint → production build → browser/runtime verification → deployment verification**
+**targeted evidence → typecheck/lint/test/build → optional runtime/browser verification → deployment verification**
 
 A green wrapper command is not equivalent to a working application. A green HTTP status is not equivalent to a rendered UI.
 
@@ -67,6 +82,7 @@ Before editing:
 
 - Read `AGENTS.md`, `AGENTS.project.md`, relevant project documentation, and the current implementation.
 - State the suspected failure layer and the evidence supporting it.
+- Do not spend the task budget provisioning dependencies unless explicitly assigned to do so.
 - Prefer one controlled experiment that can falsify the hypothesis over multiple speculative edits.
 
 While editing:
@@ -74,14 +90,15 @@ While editing:
 - Make the smallest change that addresses the demonstrated defect.
 - Preserve existing provider/data provenance and documented caveats.
 - Do not rewrite architecture merely to remove an error message.
-- Do not add dependencies when an existing project dependency is sufficient.
-- Do not repeatedly reinstall, regenerate, or reset infrastructure without identifying what changed.
+- Do not add dependencies unless the task requires them and the change is approved.
+- Do not repeatedly reinstall, regenerate, reset infrastructure, or start/stop dev servers without identifying what changed.
 
 Before handoff:
 
 - Report files changed.
-- Report commands run and their outcomes.
-- Distinguish **verified**, **inferred**, and **unverified** findings.
+- Report the four standard smoke-gate results.
+- Report any optional runtime/deployment verification separately.
+- Distinguish **verified**, **inferred**, **unverified**, and **environment-blocked** findings.
 - Record known environmental/tooling limitations separately from application defects.
 - Leave the repository in a reviewable state.
 
