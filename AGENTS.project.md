@@ -22,3 +22,18 @@ Do not enter repetitive reinstall/edit/retry loops without new evidence.
 Record what was verified versus inferred. Non-trivial changes should be
 reviewable through a CR/PR before they reach `main`; human approval remains
 the final change gate.
+
+
+---
+
+## OMP 2.0 project execution contract
+
+VNStock follows docs/OMP2_GOVERNANCE.md.
+
+Dependencies are provisioned before an agent receives the workspace. The agent should not run npm install, npm ci, npx package acquisition, or dependency repair unless explicitly assigned. Missing dependencies are reported as **ENVIRONMENT BLOCKED**.
+
+The normal smoke gate is only: npm run typecheck, npm run lint, npm test, and npm run build. Do not start npm run dev or vite dev as a routine verification step. Runtime/browser checks are exception-based and should be isolated from the normal implementation loop.
+
+A spawn vite ENOENT message is not a diagnosis. Do not modify scripts/with-app-env.mjs or enter dependency loops without evidence establishing a wrapper/process defect. If runtime debugging is required, verify the prepared environment upstream first.
+
+Non-trivial changes should be presented as a CR/PR before reaching main. Human approval is the final change gate.
