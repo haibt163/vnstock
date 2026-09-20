@@ -422,3 +422,18 @@ This project follows docs/OMP2_GOVERNANCE.md.
 **False-positive rule:** an error string is evidence, not a diagnosis. In particular, spawn vite ENOENT does not prove scripts/with-app-env.mjs is broken. Do not reinstall dependencies or start fighting ports to chase it. If runtime investigation is actually required, have the environment verified upstream first, then isolate the failing layer with the smallest controlled experiment.
 
 For non-trivial or ambiguous changes, use a CR/PR and leave main untouched until human approval. Report smoke-gate results and distinguish verified, inferred, unverified, and environment-blocked findings.
+
+
+---
+
+## OMP 2.0 workspace readiness contract
+
+The harness/operator owns workspace provisioning. Agents receive a ready workspace and must not spend task budget diagnosing host filesystem permissions unless explicitly assigned.
+
+Before model execution, the harness/operator must verify the actual project workspace is readable and writable, including basic create/write/rename/delete file operations, create/remove directory operations, and normal Git working-tree access. A failed preflight is **ENVIRONMENT BLOCKED** and must be fixed upstream.
+
+For this development environment, `D:\` is a dedicated development drive with inherited Full Control for the user's development account. New project folders inherit that baseline. This is a machine-level provisioning fact, not an instruction for agents to modify permissions.
+
+Agents must not silently move a repository to `%TEMP%`, another drive, or another directory because of a write/access problem. Scratch/temp locations are permitted for tool-specific temporary artifacts only; they must not replace the provisioned implementation workspace.
+
+**Preflight → READY WORKSPACE → AGENT EXECUTION** is the required order.
