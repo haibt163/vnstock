@@ -405,3 +405,20 @@ For non-trivial or ambiguous changes, prepare a branch/CR/PR and leave
 `main` untouched until the human owner approves it. Clearly label findings
 as **verified**, **inferred**, or **unverified**. Never interpret an open PR or
 draft PR as approval.
+
+
+---
+
+## OMP 2.0 execution governance
+
+This project follows docs/OMP2_GOVERNANCE.md.
+
+**Environment is provisioned upstream.** The harness/operator installs dependencies from the lockfile and gives the agent a ready workspace. Agents must not spend the task budget running npm install, npm ci, npx package acquisition, or repairing dependency state unless explicitly assigned. A missing dependency is **ENVIRONMENT BLOCKED**, not automatically an application defect.
+
+**Default smoke gate:** npm run typecheck → npm run lint → npm test → npm run build. These four commands are the normal completion gate.
+
+**Do not start the dev server by default.** npm run dev / vite dev / npx vite are not required smoke tests. Use a controlled runtime/browser check only when the task is specifically about runtime/UI behavior, deployment verification, or the Chief Engineer requests it. Vite separates development serving from production building, so build is the default production compilation check. citeturn0search1turn0search2
+
+**False-positive rule:** an error string is evidence, not a diagnosis. In particular, spawn vite ENOENT does not prove scripts/with-app-env.mjs is broken. Do not reinstall dependencies or start fighting ports to chase it. If runtime investigation is actually required, have the environment verified upstream first, then isolate the failing layer with the smallest controlled experiment.
+
+For non-trivial or ambiguous changes, use a CR/PR and leave main untouched until human approval. Report smoke-gate results and distinguish verified, inferred, unverified, and environment-blocked findings.
