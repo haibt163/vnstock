@@ -349,3 +349,91 @@ auth/db: OFF by default — sign-in, @/lib/db or migrations ONLY on an accounts 
 never:   build an app for a greeting/number/question; invent imagine_* calls;
          ask the user to run commands; delete or abandon /workspace/startup.sh
 ```
+
+
+---
+
+## OMP 2.0 governance — evidence before edits
+
+This project participates in the OMP 2.0 engineering governance described in
+`docs/OMP2_GOVERNANCE.md`.
+
+Agents must **diagnose before implementing**. An error string is evidence, not a
+root-cause diagnosis.
+
+### Failure-path rule
+
+When a command fails:
+
+1. Capture the exact failing command and message.
+2. Identify the layer: source code, dependency/install state, executable
+   resolution, wrapper/process spawning, framework/plugin, network/provider, or
+   runtime/browser.
+3. Run the smallest independent experiment that distinguishes those layers.
+4. If a wrapper launches a child process, verify the child independently before
+   editing the wrapper.
+5. Only edit application code after evidence establishes an application defect.
+6. After a fix, rerun the smallest confirming test, then the relevant broader
+   gates.
+7. Stop repeated reinstall/retry/edit loops when the evidence has not changed.
+
+### Vite / `spawn vite ENOENT` rule
+
+For this repository, `npm run dev` intentionally launches Vite through
+`scripts/with-app-env.mjs`. Therefore:
+
+- `spawn vite ENOENT` does **not** by itself prove the wrapper is broken.
+- First use the project's locked dependency state (`npm ci`) and verify the
+  local Vite executable exists.
+- Test the local executable directly.
+- Then test `npm run dev`.
+- Do not use a package-downloading `npx vite` invocation as the primary
+  diagnostic for a missing local binary; it can introduce a different Vite
+  installation and mask the dependency-state problem.
+- If direct local Vite works but `npm run dev` still reports
+  `spawn vite ENOENT`, investigate executable resolution/process spawning in
+  the wrapper.
+- If direct local Vite fails, do not modify the wrapper yet; diagnose the
+  dependency/install or Vite problem first.
+
+The same direct-vs-wrapper method applies to any script that spawns a child
+process.
+
+### OMP 2.0 change-control rule
+
+For non-trivial or ambiguous changes, prepare a branch/CR/PR and leave
+`main` untouched until the human owner approves it. Clearly label findings
+as **verified**, **inferred**, or **unverified**. Never interpret an open PR or
+draft PR as approval.
+
+
+---
+
+## OMP 2.0 execution governance
+
+This project follows docs/OMP2_GOVERNANCE.md.
+
+**Environment is provisioned upstream.** The harness/operator installs dependencies from the lockfile and gives the agent a ready workspace. Agents must not spend the task budget running npm install, npm ci, npx package acquisition, or repairing dependency state unless explicitly assigned. A missing dependency is **ENVIRONMENT BLOCKED**, not automatically an application defect.
+
+**Default smoke gate:** npm run typecheck → npm run lint → npm test → npm run build. These four commands are the normal completion gate.
+
+**Do not start the dev server by default.** npm run dev / vite dev / npx vite are not required smoke tests. Use a controlled runtime/browser check only when the task is specifically about runtime/UI behavior, deployment verification, or the Chief Engineer requests it. Vite separates development serving from production building, so build is the default production compilation check. citeturn0search1turn0search2
+
+**False-positive rule:** an error string is evidence, not a diagnosis. In particular, spawn vite ENOENT does not prove scripts/with-app-env.mjs is broken. Do not reinstall dependencies or start fighting ports to chase it. If runtime investigation is actually required, have the environment verified upstream first, then isolate the failing layer with the smallest controlled experiment.
+
+For non-trivial or ambiguous changes, use a CR/PR and leave main untouched until human approval. Report smoke-gate results and distinguish verified, inferred, unverified, and environment-blocked findings.
+
+
+---
+
+## OMP 2.0 workspace readiness contract
+
+The harness/operator owns workspace provisioning. Agents receive a ready workspace and must not spend task budget diagnosing host filesystem permissions unless explicitly assigned.
+
+Before model execution, the harness/operator must verify the actual project workspace is readable and writable, including basic create/write/rename/delete file operations, create/remove directory operations, and normal Git working-tree access. A failed preflight is **ENVIRONMENT BLOCKED** and must be fixed upstream.
+
+For this development environment, `D:\` is a dedicated development drive with inherited Full Control for the user's development account. New project folders inherit that baseline. This is a machine-level provisioning fact, not an instruction for agents to modify permissions.
+
+Agents must not silently move a repository to `%TEMP%`, another drive, or another directory because of a write/access problem. Scratch/temp locations are permitted for tool-specific temporary artifacts only; they must not replace the provisioned implementation workspace.
+
+**Preflight → READY WORKSPACE → AGENT EXECUTION** is the required order.
