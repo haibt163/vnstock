@@ -1,0 +1,38 @@
+{
+  "url": "http://127.0.0.1:8080/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "VNStock · Thị trường",
+      "hasCanvas": false,
+      "bodyTextLen": 3584,
+      "bodyTextHash": "ba60276401328f802de0e88c38bc24125ec21fb1a2a1cf6fa4ae9cd1e0e7b2bd",
+      "bodyTextPrefix": "Bỏ qua tới nội dung VN VNStock Thị trường Bộ lọc Toàn cảnh Phươn",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "VNStock · Thị trường",
+      "hasCanvas": false,
+      "bodyTextLen": 2959,
+      "bodyTextHash": "0efe96830007d9f86a47874b7fe2adef6acb43e5f93e05a5ca954c29c80fd757",
+      "bodyTextPrefix": "Bỏ qua tới nội dung VN VNStock VI EN VN-Index 1.825,66 +0,86% VN",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [
+    "BRAND NOTE: no custom public/og.jpg — the platform will serve the og.grok.me placeholder. Custom cards are the default for games of every kind (DOM board/word games included), whimsical apps, creative tools, and brand-forward pages — only plain utilities (converters, CRUD trackers, admin dashboards) keep the placeholder. If this app is not a plain utility, finish the brand-asset pass per /workspace/.grok/skills/og/SKILL.md."
+  ],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-preview.json"
+}

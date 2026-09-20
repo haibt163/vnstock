@@ -1,0 +1,1 @@
+node_modules/echo .vercel/echo .tanstack/echo dist/echo coverage/echo .cache/echo .vite/echo *.logecho logs/echo .envecho .env.*echo !.env.exampleecho *.tmpecho *.tempecho *.bak

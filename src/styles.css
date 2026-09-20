@@ -1,0 +1,205 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/600.css";
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter Variable", Inter, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-gain: var(--gain);
+  --color-loss: var(--loss);
+  --color-warn: var(--warn);
+  --color-gain-soft: var(--gain-soft);
+  --color-loss-soft: var(--loss-soft);
+  --color-ring: var(--ring);
+
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --shadow-border: var(--elev-border);
+}
+
+/* Dark-first: :root is the terminal canvas so a missing class does not flash light. */
+:root,
+.dark {
+  --canvas: #070a11;
+  --surface: #0d121c;
+  --surface-2: #141b28;
+  --surface-3: #1b2434;
+  --fg: #e7edf6;
+  --fg-muted: #9aa8bb;
+  --fg-subtle: #8b98ab;
+  --border: color-mix(in oklab, #e7edf6 10%, transparent);
+  --border-strong: color-mix(in oklab, #e7edf6 18%, transparent);
+  --accent: #4a6cf7;
+  --accent-fg: #f4f6ff;
+  --accent-soft: color-mix(in oklab, #4a6cf7 16%, transparent);
+  --gain: #3dcc8a;
+  --loss: #f07186;
+  --warn: #e0a43b;
+  --gain-soft: color-mix(in oklab, #3dcc8a 14%, transparent);
+  --loss-soft: color-mix(in oklab, #f07186 14%, transparent);
+  --ring: #4a6cf7;
+  --elev-border: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --ticker: #0a0f18;
+  color-scheme: dark;
+}
+
+.light {
+  --canvas: #e8edf4;
+  --surface: #f3f6fa;
+  --surface-2: #ffffff;
+  --surface-3: #e2e8f0;
+  --fg: #152033;
+  --fg-muted: #3a4a60;
+  --fg-subtle: #5c6b82;
+  --border: color-mix(in oklab, #152033 14%, transparent);
+  --border-strong: color-mix(in oklab, #152033 24%, transparent);
+  --accent: #2f4fd0;
+  --accent-fg: #ffffff;
+  --accent-soft: color-mix(in oklab, #2f4fd0 12%, transparent);
+  --gain: #0a6b3c;
+  --loss: #b4233a;
+  --warn: #8a5b00;
+  --gain-soft: color-mix(in oklab, #0a6b3c 12%, transparent);
+  --loss-soft: color-mix(in oklab, #b4233a 12%, transparent);
+  --ring: #2f4fd0;
+  --elev-border: 0 0 0 1px rgba(21, 32, 51, 0.1), 0 1px 2px rgba(21, 32, 51, 0.06);
+  --ticker: #dce3ee;
+  color-scheme: light;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  html,
+  body,
+  #app {
+    min-height: 100%;
+    max-width: 100%;
+    overflow-x: clip;
+  }
+  body {
+    background: var(--canvas);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01" on, "cv11" on;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+  ::selection {
+    background: var(--accent-soft);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+/* Horizontal pan on the grid only — do not set pan-y on body (that blocks pinch-zoom). */
+.screener-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
+.screener-grid {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: max-content;
+  min-width: 100%;
+}
+
+.screener-grid th,
+.screener-grid td {
+  white-space: nowrap;
+}
+
+.screener-grid .is-clip {
+  max-width: 8.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.screener-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--surface-2);
+  box-shadow: 1px 0 0 var(--border);
+}
+
+.screener-grid thead .screener-sticky {
+  z-index: 3;
+  background: var(--surface-3);
+}
+
+.screener-grid tbody tr:hover .screener-sticky {
+  background: var(--surface);
+}
+
+.ticker-track {
+  animation: ticker 48s linear infinite;
+}
+.ticker-track:hover {
+  animation-play-state: paused;
+}
+@keyframes ticker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.num-pos::before {
+  content: "+";
+}
