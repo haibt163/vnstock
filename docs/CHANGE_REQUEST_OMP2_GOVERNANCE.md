@@ -19,7 +19,7 @@ Introduce a lightweight OMP 2.0 governance layer for VNStock and add explicit ag
 
 ## Explicit Vite rule
 
-A `spawn vite ENOENT` message is not a root-cause conclusion. The agent must first establish whether the project's local Vite executable exists and whether direct Vite invocation works. Only a demonstrated wrapper-only failure justifies changing `scripts/with-app-env.mjs`.
+A `spawn vite ENOENT` message is not a root-cause conclusion. The environment is verified upstream. A `spawn vite ENOENT` message is not a root-cause conclusion and must not trigger an agent dependency/reinstall loop. Only a demonstrated wrapper/process-spawning defect justifies changing `scripts/with-app-env.mjs`.
 
 ## Expected outcome
 
