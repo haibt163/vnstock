@@ -10,6 +10,26 @@ Agents receive a pre-provisioned workspace. The harness/operator installs depend
 
 Once handed over, agents do not routinely run npm install, npm ci, npx package acquisition, or dependency repair. If the workspace is missing a required dependency, report ENVIRONMENT BLOCKED and stop that line of investigation. Reinstall only when the task explicitly changes dependencies or the Chief Engineer requests it.
 
+## Workspace read/write contract
+
+The harness/operator is responsible for handing the implementation agent a workspace with effective read/write access before model execution begins. This includes the intended project root, its Git working tree, and required working directories.
+
+For Windows development environments, a dedicated development drive or root may be configured with appropriate inherited permissions. For this VNStock workspace, `D:\` is intentionally configured as a development environment with inherited Full Control for the user's development account. This is an infrastructure baseline, not an agent task.
+
+Before an agent receives the workspace, the harness/operator should run a workspace preflight against the actual project location. At minimum, verify:
+1. Workspace exists and is readable.
+2. A temporary file can be created and written in the workspace.
+3. The file can be renamed.
+4. The file can be deleted.
+5. A temporary directory can be created and removed.
+6. The Git working tree is accessible for normal source changes.
+
+A successful preflight means the workspace is **READY**. A failed preflight means **ENVIRONMENT BLOCKED** and must be fixed by the harness/operator before implementation work begins.
+
+Agents must not silently move the project to `%TEMP%`, another drive, or another directory to work around a workspace write failure. Scratch directories may be used for tool-specific temporary data, but they must not silently become the implementation workspace.
+
+The purpose is to prevent agents from spending reasoning/context budget diagnosing host ACLs, filesystem access, or temporary-directory fallbacks. Verify the environment once upstream; let the agent reason about the application downstream.
+
 The default implementation smoke gate is exactly:
 
 1. npm run typecheck
