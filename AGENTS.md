@@ -349,3 +349,59 @@ auth/db: OFF by default — sign-in, @/lib/db or migrations ONLY on an accounts 
 never:   build an app for a greeting/number/question; invent imagine_* calls;
          ask the user to run commands; delete or abandon /workspace/startup.sh
 ```
+
+
+---
+
+## OMP 2.0 governance — evidence before edits
+
+This project participates in the OMP 2.0 engineering governance described in
+`docs/OMP2_GOVERNANCE.md`.
+
+Agents must **diagnose before implementing**. An error string is evidence, not a
+root-cause diagnosis.
+
+### Failure-path rule
+
+When a command fails:
+
+1. Capture the exact failing command and message.
+2. Identify the layer: source code, dependency/install state, executable
+   resolution, wrapper/process spawning, framework/plugin, network/provider, or
+   runtime/browser.
+3. Run the smallest independent experiment that distinguishes those layers.
+4. If a wrapper launches a child process, verify the child independently before
+   editing the wrapper.
+5. Only edit application code after evidence establishes an application defect.
+6. After a fix, rerun the smallest confirming test, then the relevant broader
+   gates.
+7. Stop repeated reinstall/retry/edit loops when the evidence has not changed.
+
+### Vite / `spawn vite ENOENT` rule
+
+For this repository, `npm run dev` intentionally launches Vite through
+`scripts/with-app-env.mjs`. Therefore:
+
+- `spawn vite ENOENT` does **not** by itself prove the wrapper is broken.
+- First use the project's locked dependency state (`npm ci`) and verify the
+  local Vite executable exists.
+- Test the local executable directly.
+- Then test `npm run dev`.
+- Do not use a package-downloading `npx vite` invocation as the primary
+  diagnostic for a missing local binary; it can introduce a different Vite
+  installation and mask the dependency-state problem.
+- If direct local Vite works but `npm run dev` still reports
+  `spawn vite ENOENT`, investigate executable resolution/process spawning in
+  the wrapper.
+- If direct local Vite fails, do not modify the wrapper yet; diagnose the
+  dependency/install or Vite problem first.
+
+The same direct-vs-wrapper method applies to any script that spawns a child
+process.
+
+### OMP 2.0 change-control rule
+
+For non-trivial or ambiguous changes, prepare a branch/CR/PR and leave
+`main` untouched until the human owner approves it. Clearly label findings
+as **verified**, **inferred**, or **unverified**. Never interpret an open PR or
+draft PR as approval.
