@@ -1,1 +1,36 @@
-node_modules/echo .vercel/echo .tanstack/echo dist/echo coverage/echo .cache/echo .vite/echo *.logecho logs/echo .envecho .env.*echo !.env.exampleecho *.tmpecho *.tempecho *.bak
+# Dependencies
+node_modules/
+
+# Vite / build output
+dist/
+.vite/
+
+# Vercel
+.vercel/
+
+# TanStack / framework caches
+.tanstack/
+
+# Test / coverage output
+coverage/
+
+# Caches
+.cache/
+
+# Logs
+*.log
+logs/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Temporary / backup files
+*.tmp
+*.temp
+*.bak
+
+# OS files
+.DS_Store
+Thumbs.db
