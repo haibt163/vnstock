@@ -13,12 +13,13 @@
  *
  * That precedence also means the file governs this workspace only. A deployed
  * build runs with the provider's project env, where the deployer sets
- * `VITE_AUTH_ENABLED` itself (today unconditionally `"true"`), so the deployed
+ * `VITE_AUTH_ENABLED` itself (today unconditionally "true"), so the deployed
  * flag is the platform's, not this file's.
  *
  * Vite picks the values up because `loadEnv` prefix-matches entries already in
  * `process.env`, which is why the merge has to happen before Vite starts.
  */
+
 import { spawn } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { constants as osConstants } from "node:os";
@@ -36,18 +37,25 @@ const VITE_PREFIX = "VITE_";
  */
 export function parseAppEnv(text) {
   let parsed;
+
   try {
     parsed = JSON.parse(text);
   } catch {
     return {};
   }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {};
+  }
+
   const env = {};
+
   for (const [key, value] of Object.entries(parsed)) {
     if (!key.startsWith(VITE_PREFIX)) continue;
     if (typeof value !== "string") continue;
     env[key] = value;
   }
+
   return env;
 }
 
@@ -68,7 +76,7 @@ export function mergeAppEnv(appEnv, processEnv) {
 /**
  * Translate a child's `exit` `(code, signal)` into this process's exit status.
  *
- * Do not re-raise the signal with `process.kill(process.pid, signal)`: under
+ * Do not re-raise the signal with `process.kill(process.pid, signal): under
  * qemu-user (amd64 image builds on an arm host) a self-directed signal is
  * routinely delivered as SIGSEGV to the wrong process, which takes down the
  * test worker and fails the image build. `128 + signo` is what a shell reports
@@ -79,6 +87,7 @@ export function exitStatusFromChild(code, signal) {
     const signo = osConstants.signals[signal];
     return 128 + (typeof signo === "number" ? signo : 1);
   }
+
   return code ?? 1;
 }
 
@@ -96,7 +105,9 @@ export function projectRoot() {
  */
 export function isMainModule(moduleUrl) {
   const entry = process.argv[1];
+
   if (!entry) return false;
+
   try {
     return realpathSync(entry) === fileURLToPath(moduleUrl);
   } catch {
@@ -106,20 +117,61 @@ export function isMainModule(moduleUrl) {
 
 function main(argv) {
   const [command, ...args] = argv;
+
   if (!command) {
     console.error("usage: node scripts/with-app-env.mjs <command> [args…]");
     process.exit(2);
   }
-  const env = mergeAppEnv(readAppEnv(projectRoot()), process.env);
-  const child = spawn(command, args, { stdio: "inherit", env });
+
+  const root = projectRoot();
+  const env = mergeAppEnv(readAppEnv(root), process.env);
+
+  /*
+   * Windows:
+   *
+   * npm exposes local executables through node_modules/.bin/*.cmd.
+   * Node's spawn() with shell=false cannot execute a .cmd shim directly.
+   *
+   * Resolve the local executable explicitly and use the Windows shell for
+   * .cmd execution.
+   *
+   * Non-Windows platforms continue to execute the command directly.
+   */
+  let executable = command;
+  let useShell = false;
+
+  if (process.platform === "win32") {
+    if (
+      !command.includes("/") &&
+      !command.includes("\\") &&
+      !command.endsWith(".cmd") &&
+      !command.endsWith(".exe")
+    ) {
+      executable = join(root, "node_modules", ".bin", `${command}.cmd`);
+    }
+
+    useShell = true;
+  }
+
+  const child = spawn(executable, args, {
+    stdio: "inherit",
+    env,
+    shell: useShell,
+  });
+
   // The dev server is long-running and is stopped by signalling this wrapper.
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     process.on(signal, () => child.kill(signal));
   }
+
   child.on("error", (err) => {
-    console.error(`[with-app-env] failed to run ${command}:`, err?.message || err);
+    console.error(
+      `[with-app-env] failed to run ${command}:`,
+      err?.message || err,
+    );
     process.exit(127);
   });
+
   child.on("exit", (code, signal) => {
     process.exit(exitStatusFromChild(code, signal));
   });
