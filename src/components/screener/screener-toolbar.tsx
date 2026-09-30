@@ -10,12 +10,16 @@ export function ScreenerToolbar({
   value,
   onChange,
   onReset,
+  sectors,
 }: {
   value: ScreenerFilters;
   onChange: (next: ScreenerFilters) => void;
   onReset: () => void;
+  /** Sectors present on the current board. Falls back to the curated list. */
+  sectors?: string[];
 }) {
   const { t, sectorLabel } = useI18n();
+  const sectorOptions = (sectors ?? SECTORS).filter((s) => s && s !== "—");
   return (
     <div className="max-w-full space-y-3">
       <div className="flex max-w-full flex-wrap gap-1.5">
@@ -72,7 +76,7 @@ export function ScreenerToolbar({
           aria-label={t("a11y.sector")}
         >
           <option value="">{t("screener.allSectors")}</option>
-          {SECTORS.map((s) => (
+          {sectorOptions.map((s) => (
             <option key={s} value={s}>
               {sectorLabel(s)}
             </option>

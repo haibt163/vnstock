@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/layout/app-shell";
-import { UNIVERSE, UNIVERSE_SOURCE, VN30_SOURCE } from "@/lib/market/universe";
+import { VN30_SOURCE } from "@/lib/market/universe";
 import { useI18n } from "@/lib/i18n/provider";
 import type { DataAttribution } from "@/lib/market/types";
 
@@ -30,10 +30,6 @@ function MethodologyPage() {
 }
 
 function ViBody() {
-  const hose = UNIVERSE.filter((s) => s.group === "hose_liquid").length;
-  const hnx = UNIVERSE.filter((s) => s.group === "hnx_mcap").length;
-  const upcom = UNIVERSE.filter((s) => s.group === "upcom_mcap").length;
-  const vn30 = UNIVERSE.filter((s) => s.vn30).length;
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <header>
@@ -86,22 +82,24 @@ function ViBody() {
       <section className="space-y-2">
         <h2 className="text-lg font-medium">Vũ trụ & VN30</h2>
         <p className="text-sm leading-relaxed text-fg-muted">
-          Vũ trụ mục tiêu: {vn30} mã VN30 + {hose} HOSE thanh khoản + {hnx} HNX theo vốn hóa + {upcom} UPCoM theo vốn
-          hóa = {UNIVERSE.length} mã duy nhất. Một mã chỉ được giữ nếu bảng giá live trả last print. Không bịa dòng.
+          Danh sách mã lấy từ bảng VPS <code className="text-fg">getlistckindex/hose</code>,{" "}
+          <code className="text-fg">/hnx</code>, <code className="text-fg">/upcom</code>. Chỉ giữ mã cổ phiếu 3 ký tự,
+          mỗi mã đúng một sàn. Đối chiếu <code className="text-fg">getlistallstock</code>: các mã này là cổ phiếu (
+          <code className="text-fg">type=S</code>). ETF, chứng quyền, trái phiếu và phái sinh không có trong ba danh
+          sách; nếu lọt vào thì bị loại. Không khóa cứng số lượng — niêm yết mới hoặc hủy niêm yết đổi danh sách khi
+          cache 6 giờ hết hạn.
+        </p>
+        <p className="text-sm leading-relaxed text-fg-muted">
+          Mọi mã niêm yết đều có một dòng trên bộ lọc. Mã chưa có last print vẫn hiện, giá để trống, không gán 0 và không
+          tính vào độ rộng, tăng/giảm hay khối lượng. Niêm yết đủ không có nghĩa là mọi mã đang có giao dịch.
         </p>
         <ul className="list-disc space-y-1 pl-5 text-sm text-fg-muted">
           <li>
-            VN30: {VN30_SOURCE.name}, ngày {VN30_SOURCE.asOf}. {VN30_SOURCE.note}
+            VN30: <code className="text-fg">getlistckindex/vn30</code> cùng host. Nếu endpoint lỗi, dùng rổ{" "}
+            {VN30_SOURCE.name}, ngày {VN30_SOURCE.asOf}. {VN30_SOURCE.note}
           </li>
-          <li>
-            HOSE ngoài VN30: {UNIVERSE_SOURCE.hoseMcap.name}, {UNIVERSE_SOURCE.hoseMcap.asOf}
-          </li>
-          <li>
-            HNX: {UNIVERSE_SOURCE.hnxMcap.name}, {UNIVERSE_SOURCE.hnxMcap.asOf}
-          </li>
-          <li>
-            UPCoM: {UNIVERSE_SOURCE.upcomMcap.name}, {UNIVERSE_SOURCE.upcomMcap.asOf} (VGI, ACV, MVN)
-          </li>
+          <li>Tên và ngành của 69 mã cũ được giữ. Mã mới lấy tên từ master VPS. Không có ngành thì để trống, không bịa.</li>
+          <li>P/E, vốn hóa chỉ được hỏi Simplize cho 69 mã cũ. Không gọi overlay cho toàn bộ sàn.</li>
         </ul>
       </section>
 
@@ -164,10 +162,6 @@ function ViBody() {
 }
 
 function EnBody() {
-  const hose = UNIVERSE.filter((s) => s.group === "hose_liquid").length;
-  const hnx = UNIVERSE.filter((s) => s.group === "hnx_mcap").length;
-  const upcom = UNIVERSE.filter((s) => s.group === "upcom_mcap").length;
-  const vn30 = UNIVERSE.filter((s) => s.vn30).length;
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <header>
@@ -220,23 +214,28 @@ function EnBody() {
       <section className="space-y-2">
         <h2 className="text-lg font-medium">Universe & VN30</h2>
         <p className="text-sm leading-relaxed text-fg-muted">
-          Target structure: {vn30} VN30 + {hose} liquid HOSE + {hnx} HNX by market cap + {upcom} UPCoM by market cap ={" "}
-          {UNIVERSE.length} unique names. A symbol is kept only if the live board returns a last print. No fabricated
-          rows.
+          Symbols come from the VPS board lists <code className="text-fg">getlistckindex/hose</code>,{" "}
+          <code className="text-fg">/hnx</code> and <code className="text-fg">/upcom</code>. A symbol is eligible only
+          when it is a 3-character equity on exactly one of those boards. Cross-checked against{" "}
+          <code className="text-fg">getlistallstock</code>, those codes are stocks (<code className="text-fg">type=S</code>
+          ). ETFs, covered warrants, bonds and derivatives are not on the three lists and are dropped if they appear.
+          The count is not hardcoded. The list refreshes when the 6-hour cache expires.
+        </p>
+        <p className="text-sm leading-relaxed text-fg-muted">
+          Every listed name is a screener row. A symbol with no last print stays visible with blank quote fields. It is
+          not priced at 0 and it is not counted in breadth, movers or volume. A full listing is not the same thing as a
+          last print for every name.
         </p>
         <ul className="list-disc space-y-1 pl-5 text-sm text-fg-muted">
           <li>
-            VN30: {VN30_SOURCE.name}, dated {VN30_SOURCE.asOf}. {VN30_SOURCE.note}
+            VN30: <code className="text-fg">getlistckindex/vn30</code> on the same host. If that call fails, membership
+            falls back to {VN30_SOURCE.name}, dated {VN30_SOURCE.asOf}. {VN30_SOURCE.note}
           </li>
           <li>
-            HOSE extras: {UNIVERSE_SOURCE.hoseMcap.name}, {UNIVERSE_SOURCE.hoseMcap.asOf}
+            Names and sectors for the previous 69 names are kept. New names use the VPS master string. Missing sectors
+            stay blank. Nothing is invented.
           </li>
-          <li>
-            HNX: {UNIVERSE_SOURCE.hnxMcap.name}, {UNIVERSE_SOURCE.hnxMcap.asOf}
-          </li>
-          <li>
-            UPCoM: {UNIVERSE_SOURCE.upcomMcap.name}, {UNIVERSE_SOURCE.upcomMcap.asOf} (VGI, ACV, MVN)
-          </li>
+          <li>Simplize EOD ratios are requested only for that curated set, not for every listed name.</li>
         </ul>
       </section>
 

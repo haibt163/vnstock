@@ -85,6 +85,14 @@ export function ScreenerTable({ rows }: { rows: ScreenerRow[] }) {
             className="font-medium hover:text-accent"
           >
             {row.original.symbol}
+            {row.original.price == null ? (
+              <span
+                className="ml-1 text-[10px] uppercase tracking-wide text-fg-subtle"
+                title={t("screener.noPrintHint")}
+              >
+                {t("screener.noPrint")}
+              </span>
+            ) : null}
             {row.original.vn30 ? (
               <span className="ml-1 text-[10px] uppercase text-fg-subtle">VN30</span>
             ) : null}
@@ -99,12 +107,16 @@ export function ScreenerTable({ rows }: { rows: ScreenerRow[] }) {
         ),
       },
       {
-        accessorKey: "price",
+        id: "price",
+        accessorFn: (row) => row.price ?? undefined,
+        sortUndefined: "last",
         header: colHeader("price"),
         cell: ({ getValue }) => numeric(formatPrice(getValue<number | null>(), locale)),
       },
       {
-        accessorKey: "changePct",
+        id: "changePct",
+        accessorFn: (row) => row.changePct ?? undefined,
+        sortUndefined: "last",
         header: colHeader("changePct"),
         cell: ({ row }) => (
           <span className="flex justify-end">
@@ -113,14 +125,18 @@ export function ScreenerTable({ rows }: { rows: ScreenerRow[] }) {
         ),
       },
       {
-        accessorKey: "volume",
+        id: "volume",
+        accessorFn: (row) => row.volume ?? undefined,
+        sortUndefined: "last",
         header: colHeader("volume"),
         cell: ({ getValue }) => numeric(
           <span className="text-fg-muted">{formatVolume(getValue<number | null>(), locale)}</span>,
         ),
       },
       {
-        accessorKey: "marketCap",
+        id: "marketCap",
+        accessorFn: (row) => row.marketCap ?? undefined,
+        sortUndefined: "last",
         header: colHeader("marketCap"),
         cell: ({ getValue }) => numeric(formatTurnover(getValue<number | null>(), locale)),
       },
@@ -130,25 +146,33 @@ export function ScreenerTable({ rows }: { rows: ScreenerRow[] }) {
         cell: ({ row }) => <span className="is-clip block">{sectorLabel(row.original.sector)}</span>,
       },
       {
-        accessorKey: "pe",
+        id: "pe",
+        accessorFn: (row) => row.pe ?? undefined,
+        sortUndefined: "last",
         header: colHeader("pe"),
         cell: ({ getValue }) => numeric(formatRatio(getValue<number | null>(), 1, locale)),
       },
       {
-        accessorKey: "pb",
+        id: "pb",
+        accessorFn: (row) => row.pb ?? undefined,
+        sortUndefined: "last",
         header: colHeader("pb"),
         cell: ({ getValue }) => numeric(formatRatio(getValue<number | null>(), 2, locale)),
       },
       { accessorKey: "exchange", header: colHeader("exchange") },
       {
-        accessorKey: "turnover",
+        id: "turnover",
+        accessorFn: (row) => row.turnover ?? undefined,
+        sortUndefined: "last",
         header: colHeader("turnover"),
         cell: ({ getValue }) => numeric(
           <span className="text-fg-muted">{formatTurnover(getValue<number | null>(), locale)}</span>,
         ),
       },
       {
-        accessorKey: "roe",
+        id: "roe",
+        accessorFn: (row) => row.roe ?? undefined,
+        sortUndefined: "last",
         header: colHeader("roe"),
         cell: ({ getValue }) => {
           const v = getValue<number | null>();
@@ -156,7 +180,9 @@ export function ScreenerTable({ rows }: { rows: ScreenerRow[] }) {
         },
       },
       {
-        accessorKey: "dividendYield",
+        id: "dividendYield",
+        accessorFn: (row) => row.dividendYield ?? undefined,
+        sortUndefined: "last",
         header: colHeader("dividendYield"),
         cell: ({ getValue }) => {
           const v = getValue<number | null>();

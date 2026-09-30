@@ -15,7 +15,8 @@ import type { Exchange, SecurityIdentity } from "./types.ts";
  *
  * UPCoM extras — top 3 UPCoM names by market cap (VGI, ACV, MVN).
  *
- * A symbol is kept only if the live board returns a last print. No fabricated rows.
+ * A listed symbol stays in the screener even when the live board has no last print.
+ * Quote fields stay null. Nothing is fabricated, and nothing is filled with zero.
  */
 export const VN30_SOURCE = {
   name: "SSIAM VN30 ETF creation basket",
@@ -126,11 +127,114 @@ export const SECTORS = [...new Set(UNIVERSE.map((s) => s.sector))].sort();
 
 export const EXCHANGES: Exchange[] = ["HOSE", "HNX", "UPCoM"];
 
+/** Explicit missing sector. Not a guessed industry. */
+export const UNCLASSIFIED_SECTOR = "—";
+
+/** Equity tickers on these boards are 3-character codes. Longer codes are warrants, bonds, ETFs. */
+export const EQUITY_SYMBOL_RE = /^[A-Z0-9]{3}$/;
+
+export interface ListedName {
+  name: string;
+  nameVi: string;
+  /** VPS master instrument code. S = equity. */
+  type: string;
+}
+
+export interface BuiltUniverse {
+  identities: SecurityIdentity[];
+  counts: Record<Exchange, number>;
+  dropped: number;
+}
+
+/**
+ * Turn VPS board lists into identities.
+ * Eligibility: 3-character symbol on exactly one of HOSE / HNX / UPCoM.
+ * A master row whose type is present and not "S" is excluded (warrant, bond, ETF, derivative).
+ * Curated 69-name metadata is preserved. Missing names become the ticker. Missing sectors stay "—".
+ * VN30 is only the supplied vn30 list (or the curated list when vn30FromFeed is false).
+ */
+export function buildSecurityUniverse(input: {
+  hose: readonly string[];
+  hnx: readonly string[];
+  upcom: readonly string[];
+  vn30: readonly string[];
+  names?: ReadonlyMap<string, ListedName> | null;
+  /** When false, VN30 flags fall back to the curated seed instead of the feed list. */
+  vn30FromFeed?: boolean;
+}): BuiltUniverse {
+  const names = input.names ?? null;
+  const vn30 = new Set(
+    (input.vn30FromFeed === false ? VN30_SYMBOLS : input.vn30).map((s) => s.trim().toUpperCase()),
+  );
+  const seen = new Map<string, Exchange>();
+  const blocked = new Set<string>();
+  let dropped = 0;
+  const lists: Array<[Exchange, readonly string[]]> = [
+    ["HOSE", input.hose],
+    ["HNX", input.hnx],
+    ["UPCoM", input.upcom],
+  ];
+  for (const [exchange, list] of lists) {
+    for (const raw of list) {
+      const symbol = raw.trim().toUpperCase();
+      if (!EQUITY_SYMBOL_RE.test(symbol)) {
+        dropped += 1;
+        continue;
+      }
+      if (blocked.has(symbol)) continue;
+      const prev = seen.get(symbol);
+      if (prev) {
+        if (prev !== exchange) {
+          seen.delete(symbol);
+          blocked.add(symbol);
+          dropped += 1;
+        }
+        continue;
+      }
+      const meta = names?.get(symbol);
+      if (meta && meta.type && meta.type !== "S") {
+        dropped += 1;
+        continue;
+      }
+      seen.set(symbol, exchange);
+    }
+  }
+
+  const identities: SecurityIdentity[] = [];
+  for (const [symbol, exchange] of seen) {
+    const curated = UNIVERSE_BY_SYMBOL[symbol];
+    const meta = names?.get(symbol);
+    const isVn30 = vn30.has(symbol);
+    const curatedOk = curated != null && curated.exchange === exchange;
+    const nameVi = (curatedOk ? curated.nameVi : "") || meta?.nameVi || symbol;
+    const name = (curatedOk ? curated.name : "") || meta?.name || nameVi;
+    identities.push({
+      symbol,
+      name,
+      nameVi,
+      exchange,
+      sector: curatedOk ? curated.sector : UNCLASSIFIED_SECTOR,
+      vn30: isVn30,
+      group: isVn30 ? "vn30" : curatedOk ? curated.group : "listed",
+    });
+  }
+  identities.sort((a, b) => a.symbol.localeCompare(b.symbol));
+  const counts: Record<Exchange, number> = { HOSE: 0, HNX: 0, UPCoM: 0 };
+  for (const id of identities) counts[id.exchange] += 1;
+  return { identities, counts, dropped };
+}
+
 export function lookupIdentity(symbol: string): SecurityIdentity | undefined {
   return UNIVERSE_BY_SYMBOL[symbol.trim().toUpperCase()];
 }
 
 export function genericOverview(id: SecurityIdentity): { en: string; vi: string } {
+  if (id.sector === UNCLASSIFIED_SECTOR) {
+    return {
+      en: `${id.name} (${id.symbol}) is listed on ${id.exchange}. No curated sector is available.`,
+      vi: `${id.nameVi} (${id.symbol}) niêm yết trên ${id.exchange}. Chưa có ngành trong bộ dữ liệu đã kiểm.`,
+    };
+  }
   return {
     en: `${id.name} is listed on ${id.exchange} in the ${id.sector} sector.`,
     vi: `${id.nameVi} niêm yết trên ${id.exchange}, ngành ${id.sector}.`,
