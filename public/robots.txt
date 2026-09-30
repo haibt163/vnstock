@@ -1,7 +1,8 @@
 User-agent: *
 Allow: /
+
 Disallow: /api/
 Disallow: /__grok/
 Disallow: /private/
 
-Sitemap: https://vnstockmarket.vercel.app/sitemap.xml
+Sitemap: https://vnedge.vercel.app/sitemap.xml
