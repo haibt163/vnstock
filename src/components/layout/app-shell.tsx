@@ -56,10 +56,8 @@ export function AppShell({
             {open ? <X className="size-4" /> : <Menu className="size-4" />}
           </button>
           <Link to="/" className="flex items-center gap-2 pr-2">
-            <span className="grid size-7 place-items-center rounded-md bg-accent text-[10px] font-semibold tracking-widest text-accent-fg">
-              VN
-            </span>
-            <span className="text-sm font-semibold tracking-tight">VNStock</span>
+            <img src="/vnedge-mark.svg" alt="" aria-hidden="true" className="size-7 rounded-md" />
+            <span className="text-sm font-semibold tracking-tight">VNEdge</span>
           </Link>
           <nav className="hidden items-center gap-1 lg:flex" aria-label={t("a11y.primary")}>
             {nav.map((item) => {

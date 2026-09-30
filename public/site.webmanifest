@@ -1,0 +1,17 @@
+{
+  "name": "VNEdge — Thị trường chứng khoán Việt Nam",
+  "short_name": "VNEdge",
+  "description": "VNEdge — Toàn cảnh thị trường chứng khoán Việt Nam với dữ liệu, bộ lọc, biểu đồ và phân tích.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#061614",
+  "theme_color": "#0CCF96",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "lang": "vi",
+  "dir": "ltr"
+}

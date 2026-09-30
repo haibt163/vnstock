@@ -14,7 +14,16 @@ export const Route = createFileRoute("/")({
   loader: () => getDashboard(),
   staleTime: 15_000,
   component: DashboardPage,
-  head: () => ({ meta: [{ title: "VNStock · Thị trường" }] }),
+  head: () => ({
+    meta: [
+      { title: "VNEdge · Thị trường chứng khoán Việt Nam" },
+      {
+        name: "description",
+        content:
+          "VNEdge — Toàn cảnh thị trường chứng khoán Việt Nam với dữ liệu, bộ lọc, biểu đồ và phân tích rõ ràng.",
+      },
+    ],
+  }),
 });
 
 function DashboardPage() {
