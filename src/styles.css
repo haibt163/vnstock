@@ -168,6 +168,15 @@
   text-overflow: ellipsis;
 }
 
+.screener-grid .screener-company-column,
+.screener-grid .screener-company-name {
+  min-width: 20rem;
+}
+
+.screener-grid .screener-company-name {
+  max-width: 32rem;
+}
+
 .screener-sticky {
   position: sticky;
   left: 0;
