@@ -33,7 +33,7 @@ export const Route = createFileRoute("/screener")({
   loader: () => getScreenerRows(),
   staleTime: 15_000,
   component: ScreenerPage,
-  head: () => ({ meta: [{ title: "VNStock · Bộ lọc" }] }),
+  head: () => ({ meta: [{ title: "VNEdge · Bộ lọc" }] }),
 });
 
 function searchToFilters(search: Search): ScreenerFilters {

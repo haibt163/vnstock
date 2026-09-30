@@ -14,7 +14,7 @@ export const Route = createFileRoute("/market")({
   loader: () => getDashboard(),
   staleTime: 15_000,
   component: MarketPage,
-  head: () => ({ meta: [{ title: "VNStock · Toàn cảnh" }] }),
+  head: () => ({ meta: [{ title: "VNEdge · Toàn cảnh" }] }),
 });
 
 function MarketPage() {
