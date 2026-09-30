@@ -103,7 +103,7 @@ export function ScreenerTable({ rows }: { rows: ScreenerRow[] }) {
         accessorKey: "name",
         header: colHeader("name"),
         cell: ({ row }) => (
-          <span className="is-clip block text-fg-muted">{companyName(row.original)}</span>
+          <span className="screener-company-name block text-fg-muted">{companyName(row.original)}</span>
         ),
       },
       {
@@ -285,7 +285,12 @@ export function ScreenerTable({ rows }: { rows: ScreenerRow[] }) {
                   return (
                     <th
                       key={header.id}
-                      className={cn("px-2 py-2 font-medium", pinned && "screener-sticky", numeric && "text-right")}
+                      className={cn(
+                        "px-2 py-2 font-medium",
+                        pinned && "screener-sticky",
+                        numeric && "text-right",
+                        header.column.id === "name" && "screener-company-column",
+                      )}
                       title={t(`screener.colTitle.${header.column.id}` as MessageKey)}
                       aria-label={t(`screener.colTitle.${header.column.id}` as MessageKey)}
                       aria-sort={sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : "none"}
@@ -330,7 +335,12 @@ export function ScreenerTable({ rows }: { rows: ScreenerRow[] }) {
                     return (
                       <td
                         key={cell.id}
-                        className={cn("px-2 py-2", pinned && "screener-sticky", numeric && "text-right")}
+                        className={cn(
+                          "px-2 py-2",
+                          pinned && "screener-sticky",
+                          numeric && "text-right",
+                          cell.column.id === "name" && "screener-company-column",
+                        )}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
