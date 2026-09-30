@@ -1,8 +1,11 @@
-import { genericOverview, lookupIdentity, UNIVERSE, UNIVERSE_SYMBOLS, VN30_SOURCE } from "./universe.ts";
+import { genericOverview, UNCLASSIFIED_SECTOR, UNIVERSE_BY_SYMBOL, VN30_SOURCE } from "./universe.ts";
+import { loadSecurityUniverse, type SecurityUniverse } from "./universe-feed.ts";
+import { collectQuoteBatches, VPS_QUOTE_BATCH_SIZE } from "./quote-batch.ts";
 import { cached } from "./cache.ts";
 import { applyScreenerFilters } from "./filters.ts";
 import { isMarketOpen, makeAsOf, sessionPhaseAt } from "./session.ts";
 import { fetchVpsHistory, fetchVpsIndex, fetchVpsQuotes, classifyFetchError } from "./vps.ts";
+import type { VpsQuote } from "./vps.ts";
 import { fetchYahooHistory, fetchYahooIndex, fetchYahooQuotes } from "./yahoo.ts";
 import { fetchSimplizeSummaries, type SimplizeSnapshot } from "./simplize.ts";
 import {
@@ -10,6 +13,8 @@ import {
   applyLiveValuation,
   derive52w,
   EMPTY_FUNDAMENTALS,
+  emptyQuote,
+  hasLastPrint,
   quoteToRow,
   rangeStart,
   sectorSnapshots,
@@ -28,10 +33,11 @@ import type {
   ScreenerFilters,
   ScreenerRow,
   SecurityDetail,
+  SecurityIdentity,
 } from "./types.ts";
 import { ProviderError } from "./types.ts";
 
-const QUOTE_TTL = 20_000;
+const QUOTE_TTL = 60_000;
 const INDEX_TTL = 20_000;
 const HIST_TTL = 5 * 60_000;
 const OVERLAY_WAIT_MS = 6_000;
@@ -42,6 +48,8 @@ interface QuoteBundle {
   rows: ScreenerRow[];
   quoteSource: QuoteSource;
   fallbackReason?: string;
+  failedBatches: number;
+  universe: SecurityUniverse;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -63,24 +71,37 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 function liveAttribution(
   quoteSource: QuoteSource,
   overlay: { covered: number; asOf: string | null },
-  partial?: Partial<DataAttribution>,
+  universe: SecurityUniverse,
+  partial?: Partial<DataAttribution> & { failedBatches?: number },
 ): DataAttribution {
   const asOf = makeAsOf();
   const session = sessionPhaseAt();
   const open = isMarketOpen(session);
   const delayed = quoteSource === "yahoo";
+  const vn30Note =
+    universe.vn30Source === "vps"
+      ? "VN30 membership from VPS getlistckindex/vn30 (same host as the board). Not implied for the rest of the list."
+      : `VN30 membership as of ${VN30_SOURCE.asOf} via ${VN30_SOURCE.name} (listing feed unavailable).`;
   const caveats = [
     delayed
       ? "Quotes from Yahoo Finance (delayed *.VN chart). Not an official HOSE/HNX feed."
       : "Public broker board, not an official HOSE/HNX feed.",
     "Not a substitute for licensed real-time market data.",
+    universe.scope === "vps-board"
+      ? `Listed universe from VPS getlistckindex (HOSE ${universe.counts.HOSE}, HNX ${universe.counts.HNX}, UPCoM ${universe.counts.UPCoM}). Names without a last print stay listed with blank quote fields. They are not priced at 0 and are not counted in breadth, gainers, or volume.`
+      : "VPS listing endpoints failed. Universe fell back to the curated 69 names.",
+    "Sectors and the curated company names cover the previous 69-name set only. Other names use the VPS master name and have no sector.",
+    "EOD valuation is requested only for that curated set. Simplize is not fanned out across the full board.",
     overlay.covered > 0
       ? "Valuation overlay: market cap = live price × shares; P/E = price / EPS; P/B = price / book. Shares, EPS, book, ROE, yield and growth come from a Simplize EOD snapshot (not an official exchange feed; usage rights unclear)."
       : "P/E, P/B, ROE, dividend yield and market cap are omitted when the EOD overlay is unavailable.",
-    `VN30 membership as of ${VN30_SOURCE.asOf} via ${VN30_SOURCE.name}.`,
+    vn30Note,
   ];
+  if (partial?.failedBatches) {
+    caveats.unshift(`VPS quote batches incomplete (${partial.failedBatches} failed). Rows already received were kept. Yahoo was not mixed into the gaps.`);
+  }
   if (delayed && partial?.fallbackReason) {
-    caveats.unshift(`VPS board skipped (${partial.fallbackReason}); serving delayed Yahoo *.VN.`);
+    caveats.unshift(`VPS board skipped (${partial.fallbackReason}); serving delayed Yahoo *.VN for a capped HOSE set, not the full board.`);
   }
   return {
     mode: "live",
@@ -94,11 +115,13 @@ function liveAttribution(
     quoteSourceId: quoteSource,
     fundamentalsSourceId: overlay.covered > 0 ? "simplize" : undefined,
     fundamentalsAsOf: overlay.asOf ?? undefined,
-    ...partial,
+    fallbackReason: partial?.fallbackReason,
+    historySourceId: partial?.historySourceId,
+    historyFallbackReason: partial?.historyFallbackReason,
   };
 }
 
-function vpsRow(id: (typeof UNIVERSE)[number], q: Awaited<ReturnType<typeof fetchVpsQuotes>>[number]): ScreenerRow {
+function vpsRow(id: SecurityIdentity, q: VpsQuote): ScreenerRow {
   const ref = q.reference ?? q.previousClose;
   const { change, changePct } = signedChange(q.last, ref);
   const identity = { ...id, exchange: q.exchange ?? id.exchange };
@@ -120,33 +143,70 @@ function vpsRow(id: (typeof UNIVERSE)[number], q: Awaited<ReturnType<typeof fetc
   return quoteToRow(identity, quote, EMPTY_FUNDAMENTALS);
 }
 
-async function loadQuoteBundle(): Promise<QuoteBundle> {
-  return cached("quotes:composite", QUOTE_TTL, async () => {
-    let fallbackReason: string | undefined;
-    try {
-      const raw = await fetchVpsQuotes(UNIVERSE_SYMBOLS);
-      const bySym = new Map(raw.map((q) => [q.symbol, q]));
-      const rows: ScreenerRow[] = [];
-      for (const id of UNIVERSE) {
-        const q = bySym.get(id.symbol);
-        if (!q || q.last == null) continue;
-        rows.push(vpsRow(id, q));
-      }
-      if (rows.length > 0) return { rows, quoteSource: "vps" as const };
-      fallbackReason = `vps_no_usable_last (payload=${raw.length})`;
-      console.warn("[vnstock] VPS returned no usable last prints", fallbackReason);
-    } catch (err) {
-      fallbackReason = classifyFetchError(err);
-      console.warn("[vnstock] VPS quotes failed → Yahoo delayed", fallbackReason);
-    }
+/** Quoted rows keep the board print. Listed names with no last print stay, with null quote fields. */
+export function rowsFromVpsQuotes(identities: SecurityIdentity[], quotes: VpsQuote[]): ScreenerRow[] {
+  const bySym = new Map(quotes.map((q) => [q.symbol, q]));
+  const rows: ScreenerRow[] = [];
+  for (const id of identities) {
+    const q = bySym.get(id.symbol);
+    if (q && q.last != null && q.last > 0) rows.push(vpsRow(id, q));
+    else rows.push(quoteToRow(id, emptyQuote(id.symbol)));
+  }
+  return rows;
+}
 
-    const yahoo = await fetchYahooQuotes(UNIVERSE_SYMBOLS);
+/** A discovered identity resolves even when the board has no usable last print. */
+export function resolveListedSecurity(
+  identities: readonly SecurityIdentity[],
+  rows: readonly ScreenerRow[],
+  symbol: string,
+): { identity: SecurityIdentity; row: ScreenerRow } | null {
+  const key = symbol.trim().toUpperCase();
+  const identity = identities.find((s) => s.symbol === key);
+  if (!identity) return null;
+  const row = rows.find((r) => r.symbol === key) ?? quoteToRow(identity, emptyQuote(key));
+  return { identity, row };
+}
+
+function yahooFallbackIds(universe: SecurityUniverse): SecurityIdentity[] {
+  if (universe.scope === "curated-fallback") return universe.identities;
+  // Full-board Yahoo would be hundreds of *.VN calls, and HNX/UPCoM 404.
+  // On a total VPS failure, delayed quotes cover the curated HOSE names only.
+  return universe.identities.filter((id) => id.exchange === "HOSE" && UNIVERSE_BY_SYMBOL[id.symbol]);
+}
+
+async function loadQuoteBundle(universe: SecurityUniverse): Promise<QuoteBundle> {
+  const key = `quotes:${universe.scope}:${universe.identities.length}`;
+  return cached(key, QUOTE_TTL, async () => {
+    const symbols = universe.identities.map((id) => id.symbol);
+    const batched = await collectQuoteBatches(symbols, VPS_QUOTE_BATCH_SIZE, fetchVpsQuotes);
+    const rows = rowsFromVpsQuotes(universe.identities, batched.quotes);
+    const quoted = rows.filter(hasLastPrint).length;
+    console.info(
+      "[vnstock] vps quotes",
+      `batches ${batched.okBatches} ok / ${batched.failedBatches} failed`,
+      `rows ${batched.quotes.length}`,
+      `last ${quoted}`,
+      `listed ${rows.length}`,
+      batched.stoppedEarly ? "stopped-on-timeout" : "complete",
+    );
+    if (batched.okBatches > 0) {
+      return { rows, quoteSource: "vps" as const, failedBatches: batched.failedBatches, universe };
+    }
+    const fallbackReason =
+      batched.okBatches === 0
+        ? "vps_batches_failed"
+        : `vps_no_usable_last (payload=${batched.quotes.length})`;
+    console.warn("[vnstock] VPS returned no usable last prints", fallbackReason);
+
+    const fallbackIds = yahooFallbackIds(universe);
+    const yahoo = await fetchYahooQuotes(fallbackIds.map((id) => id.symbol));
     const bySym = new Map(yahoo.map((q) => [q.symbol, q]));
-    const rows: ScreenerRow[] = [];
-    for (const id of UNIVERSE) {
+    const yahooRows: ScreenerRow[] = [];
+    for (const id of fallbackIds) {
       const q = bySym.get(id.symbol);
-      if (!q || q.price == null) continue;
-      rows.push(
+      if (!q || q.price == null || q.price <= 0) continue;
+      yahooRows.push(
         quoteToRow(id, q, {
           ...EMPTY_FUNDAMENTALS,
           high52w: q.high52w,
@@ -154,10 +214,16 @@ async function loadQuoteBundle(): Promise<QuoteBundle> {
         }),
       );
     }
-    if (rows.length === 0) {
+    if (yahooRows.length === 0) {
       throw new ProviderError("unavailable", "VPS and Yahoo both returned no usable quotes.");
     }
-    return { rows, quoteSource: "yahoo" as const, fallbackReason };
+    return {
+      rows: yahooRows,
+      quoteSource: "yahoo" as const,
+      fallbackReason,
+      failedBatches: batched.failedBatches,
+      universe,
+    };
   });
 }
 
@@ -180,8 +246,13 @@ async function overlaySimplize(rows: ScreenerRow[]): Promise<{
   covered: number;
   asOf: string | null;
 }> {
+  const targets = rows.filter((row) => UNIVERSE_BY_SYMBOL[row.symbol]);
+  if (targets.length === 0) return { rows, covered: 0, asOf: null };
   try {
-    const map = await withTimeout(fetchSimplizeSummaries(rows.map((r) => r.symbol)), OVERLAY_WAIT_MS);
+    const map = await withTimeout(
+      fetchSimplizeSummaries(targets.map((r) => r.symbol)),
+      OVERLAY_WAIT_MS,
+    );
     let covered = 0;
     let asOf: string | null = null;
     const next = rows.map((row) => {
@@ -198,7 +269,8 @@ async function overlaySimplize(rows: ScreenerRow[]): Promise<{
 }
 
 async function loadLiveBoard() {
-  const bundle = await loadQuoteBundle();
+  const universe = await loadSecurityUniverse();
+  const bundle = await loadQuoteBundle(universe);
   const overlay = await overlaySimplize(bundle.rows);
   return { ...bundle, rows: overlay.rows, overlay };
 }
@@ -258,6 +330,7 @@ export class LiveMarketDataProvider implements MarketDataProvider {
   async getMarketOverview(): Promise<MarketOverview> {
     const [board, indices] = await Promise.all([loadLiveBoard(), loadIndices()]);
     const rows = board.rows;
+    const quotedRows = rows.filter(hasLastPrint);
     const hose = indices.find((i) => i.code === "VNINDEX");
     const breadthFromIndex =
       hose && hose.advances != null && hose.declines != null && hose.unchanged != null
@@ -269,21 +342,28 @@ export class LiveMarketDataProvider implements MarketDataProvider {
             unchanged: hose.unchanged,
           }
         : null;
-    const ub = universeBreadth(rows);
-    const byChange = [...rows].sort((a, b) => (b.changePct ?? -999) - (a.changePct ?? -999));
-    const byVol = [...rows].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
+    const ub = universeBreadth(quotedRows);
+    const byChange = [...quotedRows].sort((a, b) => (b.changePct ?? -999) - (a.changePct ?? -999));
+    const byVol = [...quotedRows].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
+    const listed = board.universe.counts.HOSE + board.universe.counts.HNX + board.universe.counts.UPCoM;
     return {
-      attribution: liveAttribution(board.quoteSource, board.overlay, {
+      attribution: liveAttribution(board.quoteSource, board.overlay, board.universe, {
         fallbackReason: board.fallbackReason,
+        failedBatches: board.failedBatches,
       }),
       indices,
-      universeSize: rows.length,
-      universeLabel: `Verified live board · ${rows.length} names`,
+      universeSize: quotedRows.length,
+      universeLabel:
+        board.quoteSource === "yahoo"
+          ? `Delayed Yahoo · ${quotedRows.length} names`
+          : board.universe.scope === "vps-board"
+            ? `${quotedRows.length} with a last print · ${listed} listed`
+            : `Curated fallback · ${quotedRows.length} with a last print · ${rows.length} listed`,
       breadth: breadthFromIndex ?? { ...ub, label: ub.label },
       universeBreadth: ub,
-      volume: hose?.volume ?? rows.reduce((s, r) => s + (r.volume ?? 0), 0),
-      turnover: hose?.turnover ?? rows.reduce((s, r) => s + (r.turnover ?? 0), 0),
-      sectors: sectorSnapshots(rows),
+      volume: hose?.volume ?? quotedRows.reduce((s, r) => s + (r.volume ?? 0), 0),
+      turnover: hose?.turnover ?? quotedRows.reduce((s, r) => s + (r.turnover ?? 0), 0),
+      sectors: sectorSnapshots(quotedRows.filter((r) => r.sector !== UNCLASSIFIED_SECTOR)),
       gainers: byChange.filter((r) => (r.changePct ?? 0) > 0).slice(0, 6),
       losers: [...byChange].reverse().filter((r) => (r.changePct ?? 0) < 0).slice(0, 6),
       active: byVol.slice(0, 6),
@@ -298,21 +378,24 @@ export class LiveMarketDataProvider implements MarketDataProvider {
   }
 
   async getSecurity(symbol: string): Promise<SecurityDetail | null> {
-    const key = symbol.toUpperCase();
-    const identity = lookupIdentity(key);
-    if (!identity) return null;
     const board = await loadLiveBoard();
-    const row = board.rows.find((r) => r.symbol === key);
-    if (!row) return null;
+    const resolved = resolveListedSecurity(board.universe.identities, board.rows, symbol);
+    if (!resolved) return null;
+    const { identity, row } = resolved;
+    const key = identity.symbol;
     const hist = await loadHistory(key);
     const last = row.price ?? hist.points.at(-1)?.close ?? null;
     const history = sliceHistory(alignHistoryToLast(hist.points, last), "ALL");
     const w = derive52w(history);
-    const peers = board.rows.filter((r) => r.sector === row.sector && r.symbol !== key).slice(0, 4);
+    const peers =
+      row.sector === UNCLASSIFIED_SECTOR
+        ? []
+        : board.rows.filter((r) => r.sector === row.sector && r.symbol !== key && hasLastPrint(r)).slice(0, 4);
     const blurb = genericOverview(identity);
     return {
-      attribution: liveAttribution(board.quoteSource, board.overlay, {
+      attribution: liveAttribution(board.quoteSource, board.overlay, board.universe, {
         fallbackReason: board.fallbackReason,
+        failedBatches: board.failedBatches,
         historySourceId: hist.source,
         historyFallbackReason: hist.fallbackReason,
       }),

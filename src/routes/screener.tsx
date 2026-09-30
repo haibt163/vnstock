@@ -3,6 +3,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { ScreenerTable } from "@/components/screener/screener-table";
 import { ScreenerToolbar } from "@/components/screener/screener-toolbar";
 import { applyScreenerFilters } from "@/lib/market/filters";
+import { hasLastPrint } from "@/lib/market/normalize";
 import { getScreenerRows } from "@/lib/market/server";
 import { useKeepLive } from "@/lib/market/use-live";
 import { useI18n } from "@/lib/i18n/provider";
@@ -22,7 +23,10 @@ export const Route = createFileRoute("/screener")({
     q: typeof raw.q === "string" ? raw.q : undefined,
     ex: typeof raw.ex === "string" ? raw.ex : undefined,
     s: typeof raw.s === "string" ? raw.s : undefined,
-    vn30: raw.vn30 === true || raw.vn30 === "true" || raw.vn30 === "1" ? true : undefined,
+    vn30:
+      raw.vn30 === true || raw.vn30 === 1 || raw.vn30 === "true" || raw.vn30 === "1"
+        ? true
+        : undefined,
     minChg: typeof raw.minChg === "number" ? raw.minChg : typeof raw.minChg === "string" ? Number(raw.minChg) : undefined,
     maxChg: typeof raw.maxChg === "number" ? raw.maxChg : typeof raw.maxChg === "string" ? Number(raw.maxChg) : undefined,
   }),
@@ -50,7 +54,9 @@ function ScreenerPage() {
   const navigate = useNavigate({ from: "/screener" });
   const filters = searchToFilters(search);
   const rows = applyScreenerFilters(payload.rows, filters);
+  const quoted = payload.rows.filter(hasLastPrint).length;
   const { t } = useI18n();
+  const sectors = [...new Set(payload.rows.map((r) => r.sector))].filter((s) => s && s !== "—").sort();
 
   const setFilters = (next: ScreenerFilters) => {
     void navigate({
@@ -69,14 +75,18 @@ function ScreenerPage() {
     <AppShell
       attribution={payload.attribution}
       degraded={payload.degraded}
-      tickerRows={payload.rows}
+      tickerRows={payload.rows.filter(hasLastPrint)}
     >
       <div className="mb-5">
         <p className="text-[11px] uppercase tracking-[0.16em] text-fg-subtle">{t("screener.kicker")}</p>
         <h1 className="text-2xl font-medium tracking-tight">{t("screener.title")}</h1>
         <p className="mt-1 max-w-2xl text-sm text-fg-muted">{t("screener.lead")}</p>
+        <p className="mt-1 font-mono text-xs tabular text-fg-subtle">
+          {t("screener.coverage", { quoted, listed: payload.rows.length })}
+        </p>
       </div>
       <ScreenerToolbar
+        sectors={sectors}
         value={filters}
         onChange={setFilters}
         onReset={() => void navigate({ search: {} })}

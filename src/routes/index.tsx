@@ -68,6 +68,7 @@ function DashboardPage() {
         <div className="rounded-xl bg-surface-2 p-4 shadow-[var(--elev-border)]">
           <p className="text-[11px] uppercase tracking-wide text-fg-subtle">{t("dash.universe")}</p>
           <p className="font-mono text-xl tabular">{data.universeSize}</p>
+          <p className="mt-1 text-[11px] leading-snug text-fg-muted">{data.universeLabel}</p>
         </div>
       </div>
 

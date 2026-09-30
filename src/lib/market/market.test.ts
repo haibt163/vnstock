@@ -9,7 +9,7 @@ import {
   vpsQuoteArraySchema,
   yahooChartSchema,
 } from "./schemas.ts";
-import { alignHistoryToLast, applyLiveValuation, EMPTY_FUNDAMENTALS, signedChange, sliceHistory } from "./normalize.ts";
+import { alignHistoryToLast, applyLiveValuation, EMPTY_FUNDAMENTALS, hasLastPrint, sectorSnapshots, signedChange, sliceHistory, universeBreadth } from "./normalize.ts";
 import { fieldOrigin } from "./field-origin.ts";
 import { MockMarketDataProvider } from "./mock-provider.ts";
 import { deriveTechnicals, rsi, sma } from "./technicals.ts";
@@ -39,7 +39,10 @@ import {
   SCREENER_COLUMN_IDS,
   serializeScreenerVisibility,
 } from "./screener-columns.ts";
-import { UNIVERSE, VN30_SOURCE, VN30_SYMBOLS } from "./universe.ts";
+import { UNIVERSE, VN30_SOURCE, VN30_SYMBOLS, buildSecurityUniverse, UNCLASSIFIED_SECTOR } from "./universe.ts";
+import { collectQuoteBatches, chunkSymbols } from "./quote-batch.ts";
+import { resolveListedSecurity, rowsFromVpsQuotes } from "./live-provider.ts";
+import type { VpsQuote } from "./vps.ts";
 import type { PricePoint, ScreenerRow } from "./types.ts";
 
 function row(partial: Partial<ScreenerRow>): ScreenerRow {
@@ -355,7 +358,7 @@ test("locale defaults to Vietnamese and dictionaries share keys", () => {
   assert.ok(viKeys.length > 80);
 });
 
-test("universe is 69 unique names with the documented groups", () => {
+test("curated seed stays 69 unique names with the documented groups", () => {
   assert.equal(VN30_SYMBOLS.length, 30);
   assert.equal(new Set(VN30_SYMBOLS).size, 30);
   assert.equal(new Set(UNIVERSE.map((s) => s.symbol)).size, UNIVERSE.length);
@@ -372,6 +375,259 @@ test("universe is 69 unique names with the documented groups", () => {
   assert.equal(UNIVERSE.find((s) => s.symbol === "VGI")?.exchange, "UPCoM");
   assert.equal(VN30_SOURCE.asOf, "2026-09-15");
 });
+
+test("board lists build an equity universe larger than the curated 69", () => {
+  const hose = ["VCB", "PLX", "E1VFVN30", "CACB2207", "ZZZ", ...seq(100, 80)];
+  const hnx = ["KSF", "BBB", ...seq(200, 40)];
+  const upcom = ["VGI", "BBB", ...seq(300, 40)];
+  const names = new Map([
+    ["ZZZ", { name: "Should drop", nameVi: "Loại", type: "W" }],
+    ["AAA", { name: "New Co", nameVi: "Công ty mới", type: "S" }],
+    ["VCB", { name: "Not used", nameVi: "Không dùng", type: "S" }],
+  ]);
+  hose.push("AAA");
+  const built = buildSecurityUniverse({
+    hose,
+    hnx,
+    upcom,
+    vn30: ["VCB"],
+    names,
+    vn30FromFeed: true,
+  });
+  const symbols = built.identities.map((s) => s.symbol);
+  assert.equal(new Set(symbols).size, symbols.length);
+  assert.ok(built.identities.length > 69);
+  assert.ok(built.counts.HOSE > 0);
+  assert.ok(built.counts.HNX > 0);
+  assert.ok(built.counts.UPCoM > 0);
+  assert.ok(!symbols.includes("E1VFVN30"));
+  assert.ok(!symbols.includes("CACB2207"));
+  assert.ok(!symbols.includes("ZZZ"));
+  assert.ok(!symbols.includes("BBB"));
+  const vcb = built.identities.find((s) => s.symbol === "VCB");
+  assert.equal(vcb?.vn30, true);
+  assert.equal(vcb?.group, "vn30");
+  assert.equal(vcb?.name, "Vietcombank");
+  assert.equal(vcb?.sector, "Banks");
+  const aaa = built.identities.find((s) => s.symbol === "AAA");
+  assert.equal(aaa?.name, "New Co");
+  assert.equal(aaa?.nameVi, "Công ty mới");
+  assert.equal(aaa?.sector, UNCLASSIFIED_SECTOR);
+  assert.equal(aaa?.vn30, false);
+  assert.equal(aaa?.group, "listed");
+  const bare = built.identities.find((s) => s.symbol === seq(100, 1)[0]);
+  assert.equal(bare?.name, bare?.symbol);
+  assert.equal(bare?.sector, UNCLASSIFIED_SECTOR);
+  assert.equal(built.identities.find((s) => s.symbol === "PLX")?.vn30, false);
+  const exchanges = new Set(built.identities.map((s) => s.exchange));
+  assert.deepEqual([...exchanges].sort(), ["HNX", "HOSE", "UPCoM"]);
+});
+
+test("quote batches keep successful rows and do not invent prices", async () => {
+  assert.deepEqual(chunkSymbols(["A", "B", "C", "D", "E"], 2), [["A", "B"], ["C", "D"], ["E"]]);
+  const calls: string[][] = [];
+  const partial = await collectQuoteBatches(["A", "B", "C", "D", "E"], 2, async (batch) => {
+    calls.push(batch);
+    if (batch[0] === "C") throw new Error("http_500");
+    return batch.map((symbol) => symbol);
+  });
+  assert.equal(partial.okBatches, 2);
+  assert.equal(partial.failedBatches, 1);
+  assert.equal(partial.stoppedEarly, false);
+  assert.deepEqual(partial.quotes, ["A", "B", "E"]);
+  assert.equal(calls.length, 3);
+
+  let timeoutCalls = 0;
+  const stalled = await collectQuoteBatches(["A", "B", "C"], 1, async (batch) => {
+    timeoutCalls += 1;
+    if (batch[0] === "B") {
+      const err = new Error("timeout");
+      err.name = "Timeout";
+      throw err;
+    }
+    return batch;
+  });
+  assert.deepEqual(stalled.quotes, ["A"]);
+  assert.equal(stalled.failedBatches, 1);
+  assert.equal(stalled.stoppedEarly, true);
+  assert.equal(timeoutCalls, 2);
+
+  const identities = [
+    { symbol: "VCB", name: "Vietcombank", nameVi: "VCB", exchange: "HOSE" as const, sector: "Banks", vn30: true, group: "vn30" as const },
+    { symbol: "PGV", name: "PGV", nameVi: "PGV", exchange: "HOSE" as const, sector: "Utilities", vn30: false, group: "hose_liquid" as const },
+    { symbol: "NVB", name: "NVB", nameVi: "NVB", exchange: "HNX" as const, sector: "Banks", vn30: false, group: "listed" as const },
+  ];
+  const quote = (symbol: string, last: number | null): VpsQuote => ({
+    symbol,
+    last,
+    reference: 10,
+    previousClose: 10,
+    open: 1,
+    high: 1,
+    low: 1,
+    volume: 1,
+    ceiling: 11,
+    floor: 9,
+    exchange: "HOSE",
+  });
+  const rows = rowsFromVpsQuotes(identities, [quote("VCB", 60_300), quote("PGV", null), quote("ZZZ", 10)]);
+  assert.deepEqual(rows.map((r) => r.symbol), ["VCB", "PGV", "NVB"]);
+  assert.equal(rows[0]?.price, 60_300);
+  assert.equal(rows[0]?.volume, 1);
+  assert.equal(rows[0]?.reference, 10);
+  assert.equal(rows[0]?.change, 60_290);
+  assert.equal(rows[1]?.price, null);
+  assert.equal(rows[1]?.volume, null);
+  assert.equal(rows[1]?.reference, null);
+  assert.equal(rows[1]?.change, null);
+  assert.equal(rows[1]?.turnover, null);
+  assert.equal(rows[2]?.price, null);
+  const zeroLast = rowsFromVpsQuotes(identities, [quote("NVB", 0)]);
+  assert.deepEqual(zeroLast.map((r) => r.symbol), ["VCB", "PGV", "NVB"]);
+  assert.ok(zeroLast.every((r) => r.price == null && r.volume == null && r.change == null && r.changePct == null && r.turnover == null));
+});
+
+test("unquoted listings stay browseable and out of market statistics", () => {
+  const quiet = row({
+    symbol: "AAA",
+    name: "Alpha JSC",
+    nameVi: "Công ty Alpha",
+    exchange: "UPCoM",
+    sector: "Banks",
+    vn30: false,
+    group: "listed",
+    price: null,
+    reference: null,
+    previousClose: null,
+    change: null,
+    changePct: null,
+    open: null,
+    high: null,
+    low: null,
+    volume: null,
+    turnover: null,
+    ceiling: null,
+    floor: null,
+    pe: null,
+    pb: null,
+  });
+  const hose = row({ symbol: "VCB", name: "Vietcombank", nameVi: "Vietcombank", exchange: "HOSE", sector: "Banks", price: 60_000, changePct: 1.2, volume: 1000, turnover: 60_000_000 });
+  const hnx = row({ symbol: "NVB", name: "NCB", nameVi: "NCB", exchange: "HNX", sector: "Banks", price: 8_000, changePct: -0.4, volume: 50, turnover: 400_000 });
+  const flat = row({ symbol: "ACB", name: "Asia Commercial Bank", nameVi: "Ngân hàng Á Châu", exchange: "HOSE", sector: "Banks", price: 25_000, changePct: 0, volume: 10, turnover: 250_000 });
+  const board = [hose, hnx, flat, quiet];
+
+  assert.equal(hasLastPrint(hose), true);
+  assert.equal(hasLastPrint(quiet), false);
+  assert.equal(quiet.price, null);
+  assert.notEqual(quiet.price, 0);
+  assert.equal(quiet.volume, null);
+  assert.equal(quiet.change, null);
+  assert.equal(quiet.turnover, null);
+
+  assert.deepEqual(applyScreenerFilters(board, { query: "alpha" }).map((r) => r.symbol), ["AAA"]);
+  assert.deepEqual(applyScreenerFilters(board, { query: "công ty" }).map((r) => r.symbol), ["AAA"]);
+  assert.deepEqual(applyScreenerFilters(board, { exchanges: ["HOSE"] }).map((r) => r.symbol), ["VCB", "ACB"]);
+  assert.deepEqual(applyScreenerFilters(board, { exchanges: ["HNX"] }).map((r) => r.symbol), ["NVB"]);
+  assert.deepEqual(applyScreenerFilters(board, { exchanges: ["UPCoM"] }).map((r) => r.symbol), ["AAA"]);
+  assert.deepEqual(applyScreenerFilters(board, { minPrice: 1 }).map((r) => r.symbol), ["VCB", "NVB", "ACB"]);
+  assert.deepEqual(applyScreenerFilters(board, { minVolume: 0 }).map((r) => r.symbol), ["VCB", "NVB", "ACB"]);
+
+  assert.deepEqual(sortScreenerRows(board, "changePct", "desc").map((r) => r.symbol), ["VCB", "ACB", "NVB", "AAA"]);
+  assert.deepEqual(sortScreenerRows(board, "changePct", "asc").map((r) => r.symbol), ["NVB", "ACB", "VCB", "AAA"]);
+  assert.deepEqual(sortScreenerRows(board, "price", "asc").map((r) => r.symbol), ["NVB", "ACB", "VCB", "AAA"]);
+  assert.deepEqual(sortScreenerRows(board, "price", "desc").map((r) => r.symbol), ["VCB", "ACB", "NVB", "AAA"]);
+  assert.deepEqual(sortScreenerRows(board, "volume", "desc").map((r) => r.symbol), ["VCB", "NVB", "ACB", "AAA"]);
+  assert.deepEqual(sortScreenerRows(board, "turnover", "asc").map((r) => r.symbol), ["ACB", "NVB", "VCB", "AAA"]);
+  assert.deepEqual(sortScreenerRows(board, "pe", "desc").map((r) => r.symbol).at(-1), "AAA");
+
+  const breadth = universeBreadth(board);
+  assert.equal(breadth.advances, 1);
+  assert.equal(breadth.declines, 1);
+  assert.equal(breadth.unchanged, 1);
+  assert.equal(breadth.advances + breadth.declines + breadth.unchanged, board.filter(hasLastPrint).length);
+  const banks = sectorSnapshots(board).find((s) => s.sector === "Banks");
+  assert.equal(banks?.count, 3);
+  assert.equal(banks?.advancers, 1);
+  assert.equal(banks?.decliners, 1);
+  assert.equal(banks?.unchanged, 1);
+
+  const listed = UNIVERSE.map((id) => row({ ...id, price: 10_000, changePct: 0, volume: 1 }));
+  const vn30 = applyScreenerFilters(listed, { vn30Only: true });
+  assert.equal(vn30.length, 30);
+  assert.deepEqual(vn30.map((r) => r.symbol).sort(), [...VN30_SYMBOLS].sort());
+  for (const seed of UNIVERSE) {
+    assert.equal(listed.find((r) => r.symbol === seed.symbol)?.sector, seed.sector);
+    assert.equal(listed.find((r) => r.symbol === seed.symbol)?.name, seed.name);
+  }
+});
+
+test("a listed identity without a last print stays a row and still resolves", () => {
+  const identities = [
+    { symbol: "VCB", name: "Vietcombank", nameVi: "Vietcombank", exchange: "HOSE" as const, sector: "Banks", vn30: true, group: "vn30" as const },
+    { symbol: "PGV", name: "PV Power", nameVi: "PV Power", exchange: "HOSE" as const, sector: "Utilities", vn30: false, group: "hose_liquid" as const },
+    { symbol: "ADC", name: "ADC Co", nameVi: "ADC", exchange: "HNX" as const, sector: "—", vn30: false, group: "listed" as const },
+    { symbol: "ACM", name: "ACM Co", nameVi: "Công ty ACM", exchange: "UPCoM" as const, sector: "—", vn30: false, group: "listed" as const },
+  ];
+  const quote = (symbol: string, last: number | null): VpsQuote => ({
+    symbol,
+    last,
+    reference: 10,
+    previousClose: 10,
+    open: 1,
+    high: 2,
+    low: 1,
+    volume: 5,
+    ceiling: 11,
+    floor: 9,
+    exchange: "HOSE",
+  });
+  const rows = rowsFromVpsQuotes(identities, [quote("VCB", 58_200), quote("PGV", null), quote("ADC", 0)]);
+  assert.deepEqual(rows.map((r) => r.symbol), ["VCB", "PGV", "ADC", "ACM"]);
+  const vcb = rows.find((r) => r.symbol === "VCB");
+  assert.equal(vcb?.price, 58_200);
+  assert.equal(vcb?.volume, 5);
+  assert.equal(vcb?.change, 58_190);
+  for (const symbol of ["PGV", "ADC", "ACM"]) {
+    const quiet = rows.find((r) => r.symbol === symbol);
+    assert.ok(quiet);
+    assert.equal(quiet?.price, null);
+    assert.equal(quiet?.reference, null);
+    assert.equal(quiet?.previousClose, null);
+    assert.equal(quiet?.change, null);
+    assert.equal(quiet?.changePct, null);
+    assert.equal(quiet?.open, null);
+    assert.equal(quiet?.high, null);
+    assert.equal(quiet?.low, null);
+    assert.equal(quiet?.volume, null);
+    assert.equal(quiet?.turnover, null);
+    assert.equal(quiet?.ceiling, null);
+    assert.equal(quiet?.floor, null);
+  }
+  assert.deepEqual(applyScreenerFilters(rows, { exchanges: ["HOSE"] }).map((r) => r.symbol), ["VCB", "PGV"]);
+  assert.deepEqual(applyScreenerFilters(rows, { exchanges: ["HNX"] }).map((r) => r.symbol), ["ADC"]);
+  assert.deepEqual(applyScreenerFilters(rows, { exchanges: ["UPCoM"] }).map((r) => r.symbol), ["ACM"]);
+  assert.deepEqual(applyScreenerFilters(rows, { query: "công ty acm" }).map((r) => r.symbol), ["ACM"]);
+  const byPriceDesc = sortScreenerRows(rows, "price", "desc").map((r) => r.symbol);
+  const byPriceAsc = sortScreenerRows(rows, "price", "asc").map((r) => r.symbol);
+  assert.equal(byPriceDesc[0], "VCB");
+  assert.equal(byPriceAsc[0], "VCB");
+  assert.deepEqual(byPriceDesc.slice(1).sort(), ["ACM", "ADC", "PGV"]);
+  assert.deepEqual(byPriceAsc.slice(1).sort(), ["ACM", "ADC", "PGV"]);
+  const breadth = universeBreadth(rows);
+  assert.equal(breadth.advances + breadth.declines + breadth.unchanged, 1);
+  const missing = resolveListedSecurity(identities, rows, "acm");
+  assert.equal(missing?.identity.symbol, "ACM");
+  assert.equal(missing?.identity.exchange, "UPCoM");
+  assert.equal(missing?.row.price, null);
+  assert.equal(resolveListedSecurity(identities, rows, "vcb")?.row.price, 58_200);
+  assert.equal(resolveListedSecurity(identities, rows, "ZZZZ"), null);
+});
+
+function seq(start: number, n: number): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < n; i += 1) out.push((start + i).toString(36).toUpperCase().padStart(3, "0").slice(-3));
+  return out;
+}
 
 test("cache coalesces inflight and stores the first result", async () => {
   cacheClear();

@@ -58,6 +58,9 @@ function StockPage() {
               · {locale === "vi" ? detail.identity.name : detail.identity.nameVi}
             </span>
           </p>
+          {detail.quote.price == null ? (
+            <p className="mt-2 text-xs text-fg-subtle">{t("stock.noPrint")}</p>
+          ) : null}
         </div>
         <div className="text-right">
           <p className="font-mono text-3xl tabular tracking-tight">{formatPrice(detail.quote.price, locale)}</p>

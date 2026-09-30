@@ -52,7 +52,7 @@ export interface SecurityIdentity {
   exchange: Exchange;
   sector: string;
   vn30: boolean;
-  group: "vn30" | "hose_liquid" | "hnx_mcap" | "upcom_mcap";
+  group: "vn30" | "hose_liquid" | "hnx_mcap" | "upcom_mcap" | "listed";
 }
 
 export interface Quote {

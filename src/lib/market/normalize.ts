@@ -8,6 +8,28 @@ import type {
   SecurityIdentity,
 } from "./types.ts";
 
+export function hasLastPrint(row: { price: number | null }): boolean {
+  return row.price != null && Number.isFinite(row.price) && row.price > 0;
+}
+
+export function emptyQuote(symbol: string): Quote {
+  return {
+    symbol,
+    price: null,
+    reference: null,
+    previousClose: null,
+    change: null,
+    changePct: null,
+    open: null,
+    high: null,
+    low: null,
+    volume: null,
+    turnover: null,
+    ceiling: null,
+    floor: null,
+  };
+}
+
 export function signedChange(last: number | null, ref: number | null) {
   if (last == null || ref == null || ref === 0) {
     return { change: null as number | null, changePct: null as number | null };
@@ -114,8 +136,9 @@ export function derive52w(points: PricePoint[]): { high52w: number | null; low52
 }
 
 export function sectorSnapshots(rows: ScreenerRow[]): SectorSnapshot[] {
+  const quoted = rows.filter(hasLastPrint);
   const map = new Map<string, ScreenerRow[]>();
-  for (const row of rows) {
+  for (const row of quoted) {
     const list = map.get(row.sector) ?? [];
     list.push(row);
     map.set(row.sector, list);
@@ -137,10 +160,11 @@ export function sectorSnapshots(rows: ScreenerRow[]): SectorSnapshot[] {
 }
 
 export function universeBreadth(rows: ScreenerRow[]) {
+  const quoted = rows.filter(hasLastPrint);
   let advances = 0;
   let declines = 0;
   let unchanged = 0;
-  for (const row of rows) {
+  for (const row of quoted) {
     const p = row.changePct;
     if (p == null || p === 0) unchanged += 1;
     else if (p > 0) advances += 1;
@@ -148,7 +172,7 @@ export function universeBreadth(rows: ScreenerRow[]) {
   }
   return {
     scope: "universe" as const,
-    label: `In this ${rows.length}-stock universe`,
+    label: `${quoted.length} with a last print`,
     advances,
     declines,
     unchanged,

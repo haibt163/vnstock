@@ -10,7 +10,7 @@ const QUOTE_TIMEOUT_MS = 15_000;
 
 const HEADERS = {
   Accept: "application/json,text/plain,*/*",
-  "User-Agent": "VNStockScreener/1.0 (research; +https://grok.me)",
+  "User-Agent": "VNStock/1.0",
 };
 
 export const VPS_INDEX_MAP: Record<string, { code: string; name: string }> = {
