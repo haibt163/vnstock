@@ -1,66 +1,133 @@
 # VNStock
 
-Bộ lọc chứng khoán Việt Nam. Giao diện terminal tối làm mặc định, theme sáng được thiết kế riêng.
+VNStock is a Vietnamese stock-market screening and analytical web application.
+It provides a compact market dashboard, exchange-aware screening, stock detail
+pages, and methodology/source transparency.
 
-Công cụ phân tích — không phải sở giao dịch, công ty chứng khoán hay tư vấn đầu tư.
+> **Important:** VNStock is an analytical tool, not a stock exchange, broker,
+> or investment adviser. Market data shown by the application is subject to
+> provider availability and the documented usage/provenance limitations.
 
-## Data
+## Data architecture
 
-Cascade:
+### Quotes
 
-1. **VPS Securities public price board** (near-live, not HOSE/HNX official)
-2. **Yahoo Finance `*.VN`** delayed chart if VPS returns no usable quotes (badge: DELAYED)
-3. **DEMO DATA** only if both quote sources fail
+The current quote cascade is:
 
-EOD overlay: Simplize company summary (shares, EPS, book, ROE, yield, growth). Market cap / P/E / P/B are recomputed from the live print. Missing metrics show — .
+`VPS public price board → Yahoo Finance delayed *.VN → DEMO`
 
-VN30 membership follows the SSIAM VN30 ETF creation basket dated **2026-09-15**. Universe: 30 VN30 + 26 liquid HOSE + 10 HNX + 3 UPCoM = 69 unique names, kept only when the live board returns a last print.
+**VPS** is the primary near-live quote source used by the application. It is a
+public broker board, not an official HOSE/HNX exchange feed, and its use in
+third-party applications remains a documented terms/usage caveat.
 
-See [docs/DATA_PROVIDERS.md](docs/DATA_PROVIDERS.md) for research, terms caveats, field origin and how to switch providers.
+**Yahoo Finance** is a clearly labelled delayed fallback. It is not silently
+mixed into gaps in a VPS snapshot.
 
-## Language
+**DEMO** is used only when the live quote paths are unavailable according to
+the application fallback logic.
 
-Vietnamese is the default, even if the browser is English. Toggle Tiếng Việt / English; persisted as `vnstock-locale`.
+See [docs/DATA_PROVIDERS.md](docs/DATA_PROVIDERS.md) for provider research,
+freshness, field provenance, and usage caveats.
+
+### Listed universe
+
+The application dynamically discovers the listed-equity universe from VPS
+board lists:
+
+- HOSE: `getlistckindex/hose`
+- HNX: `getlistckindex/hnx`
+- UPCoM: `getlistckindex/upcom`
+
+The universe is not hardcoded to the former 69-name sample.
+
+A listed security and its current quote are separate concepts. A symbol can
+remain in the browseable universe when VPS has no usable last print; in that
+case quote fields remain unavailable rather than being filled with zero or
+synthetic values.
+
+During the 2026-09-29 verification pass, the observed universe was:
+
+| Exchange | Listed | With a usable last print |
+|---|---:|---:|
+| HOSE | 405 | 344 |
+| HNX | 299 | 166 |
+| UPCoM | 818 | 246 |
+| **Total** | **1,522** | **756** |
+
+These figures are an observed verification snapshot, not a permanent market
+count.
+
+### Metadata
+
+The established 69-name curated set retains its existing company/sector
+metadata where available. Newly discovered names use source-supported VPS
+master names and may have unavailable sector metadata.
+
+VN30 membership is maintained separately and is not inferred from the total
+listed universe.
 
 ## Routes
 
-- `/` market dashboard
-- `/screener` flagship screener (URL-synced filters, pagination, column visibility)
-- `/market` index overview
-- `/stock/:symbol` detail + derived MA/RSI/MACD + labelled fundamentals
-- `/methodology` sources, universe, quoted vs derived vs source
+- `/` — market dashboard
+- `/screener` — flagship screener with URL-synced filters, pagination, and
+  column visibility
+- `/market` — index overview
+- `/stock/:symbol` — stock detail, historical chart, and derived indicators
+- `/methodology` — data sources, universe rules, and field provenance
 
-## Theme
+## Language and theme
 
-System / light / dark. Choice persists in `localStorage` (`vnstock-theme`). A head script applies the class before paint; CSS `:root` is dark so a missing class does not flash light.
+Vietnamese is the default language, with English available.
+
+System / light / dark themes are supported and persisted locally.
 
 ## Setup
 
-```
+Prerequisites: Node.js and npm.
+
+```bash
 npm install
 npm run dev
 ```
 
-Optional environment (never commit secrets): copy `.env.example`.
+Do not commit secrets. Use `.env.example` only to document supported
+environment-variable names.
 
+## Verification
+
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run build
 ```
-MARKET_DATA_PROVIDER=auto
-SSI_CONSUMER_ID=
-SSI_CONSUMER_SECRET=
-```
 
-## Scripts
+## Engineering governance
 
-- `npm run dev` — development
-- `npm run build` — production build
-- `npm run typecheck`
-- `npm test`
-- `npm run lint`
+This repository follows the project's OMP 2.0 engineering governance.
 
-## Known limits
+Start with:
 
-- VPS and Simplize usage rights for third-party apps are unclear; labelled, not silent.
-- SSI FastConnect is documented but requires partner credentials; this build does not use it for quotes.
-- Yahoo delayed fallback does not provide VN30/HNX/UPCoM index snapshots.
-- Debt/equity is omitted (no legitimate current source in this environment).
-- Cold start may take a few seconds before the EOD overlay fills (30-minute cache afterwards).
+- [AGENTS.md](AGENTS.md) — repository-wide agent contract
+- [AGENTS.project.md](AGENTS.project.md) — VNStock-specific project rules
+- [docs/OMP2_GOVERNANCE.md](docs/OMP2_GOVERNANCE.md) — project OMP 2.0 governance
+- [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) — current verified status
+- [docs/DATA_PROVIDERS.md](docs/DATA_PROVIDERS.md) — provider evidence and
+  caveats
+
+## Current limitations
+
+- VPS is not an official exchange feed and third-party usage rights remain
+  unclear.
+- VPS can occasionally exhibit slow responses; the application uses bounded
+  timeouts/caching and preserves received batches when appropriate.
+- A symbol without a current last print has no fabricated quote.
+- Sector metadata is not complete for the dynamically discovered universe.
+- Yahoo delayed fallback does not provide full HNX/UPCoM quote coverage.
+- Credentialed SSI FastConnect remains a documented option but is not the
+  current unauthenticated quote source.
+
+## Contributing / review
+
+Work on a feature branch, run the verification gate, and submit a PR for
+review. Do not merge directly to `main`.
