@@ -1,10 +1,10 @@
-# VNStock
+# VNEdge
 
-VNStock is a Vietnamese stock-market screening and analytical web application.
+VNEdge is a Vietnamese stock-market screening and analytical web application.
 It provides a compact market dashboard, exchange-aware screening, stock detail
 pages, and methodology/source transparency.
 
-> **Important:** VNStock is an analytical tool, not a stock exchange, broker,
+> **Important:** VNEdge is an analytical tool, not a stock exchange, broker,
 > or investment adviser. Market data shown by the application is subject to
 > provider availability and the documented usage/provenance limitations.
 
@@ -104,7 +104,7 @@ npm run build
 
 ## Engineering governance
 
-This repository follows the project's OMP 2.0 engineering governance.
+This repository (`haibt163/vnstock`) powers the VNEdge product and follows the project's OMP 2.0 engineering governance.
 
 Start with:
 

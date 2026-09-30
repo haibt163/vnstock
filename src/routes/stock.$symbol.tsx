@@ -23,7 +23,7 @@ export const Route = createFileRoute("/stock/$symbol")({
   },
   staleTime: 15_000,
   component: StockPage,
-  head: ({ params }) => ({ meta: [{ title: `VNStock · ${params.symbol.toUpperCase()}` }] }),
+  head: ({ params }) => ({ meta: [{ title: `VNEdge · ${params.symbol.toUpperCase()}` }] }),
 });
 
 function StockPage() {

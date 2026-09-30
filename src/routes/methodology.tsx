@@ -6,7 +6,7 @@ import type { DataAttribution } from "@/lib/market/types";
 
 export const Route = createFileRoute("/methodology")({
   component: MethodologyPage,
-  head: () => ({ meta: [{ title: "VNStock · Phương pháp" }] }),
+  head: () => ({ meta: [{ title: "VNEdge · Phương pháp" }] }),
 });
 
 const DOCS_ATTR: DataAttribution = {
@@ -36,7 +36,7 @@ function ViBody() {
         <p className="text-[11px] uppercase tracking-[0.16em] text-fg-subtle">Về dữ liệu</p>
         <h1 className="text-2xl font-medium tracking-tight">Phương pháp</h1>
         <p className="mt-2 text-sm text-fg-muted">
-          VNStock là công cụ sàng lọc phân tích, không phải sở giao dịch, công ty chứng khoán hay tư vấn đầu tư.
+          VNEdge là công cụ sàng lọc phân tích, không phải sở giao dịch, công ty chứng khoán hay tư vấn đầu tư.
           Không nội dung nào ở đây là khuyến nghị mua hoặc bán chứng khoán.
         </p>
       </header>
@@ -168,7 +168,7 @@ function EnBody() {
         <p className="text-[11px] uppercase tracking-[0.16em] text-fg-subtle">About the data</p>
         <h1 className="text-2xl font-medium tracking-tight">Methodology</h1>
         <p className="mt-2 text-sm text-fg-muted">
-          VNStock is an analytical screening tool, not an exchange, broker or investment advisor. Nothing here is a
+          VNEdge is an analytical screening tool, not an exchange, broker or investment advisor. Nothing here is a
           recommendation to buy or sell securities.
         </p>
       </header>
