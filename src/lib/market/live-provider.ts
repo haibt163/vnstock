@@ -271,6 +271,8 @@ async function overlaySimplize(rows: ScreenerRow[]): Promise<{
         fetchSimplizeSummaries(curated.map((r) => r.symbol)),
         OVERLAY_WAIT_MS,
       );
+      // asOf is the first available snapshot in map iteration order (completion order).
+      // Not guaranteed to match main's row-order pick; the value is informational.
       for (const snap of summaryMap.values()) {
         if (snap.asOf) {
           asOf = snap.asOf;

@@ -16,7 +16,7 @@ import { deriveTechnicals, rsi, sma } from "./technicals.ts";
 import { isMarketOpen, sessionPhaseAt } from "./session.ts";
 import { contrastRatio, CONTRAST_PAIRS } from "./contrast.ts";
 import { boardLotToShares, boardPriceToVnd, parseIndexOt, classifyFetchError, fallbackReasonTag, parseVpsQuotePayload } from "./vps.ts";
-import { mapSimplizeSector, fetchSimplizeSummaries, fetchSimplizeSectors, clearSimplizeSectorStore, MAX_SECTOR_FETCH_PER_CALL } from "./simplize.ts";
+import { mapSimplizeSector, fetchSimplizeSummaries, fetchSimplizeSectors, clearSimplizeSectorStore, MAX_SECTOR_FETCH_PER_CALL, SECTOR_FAILURE_TTL_MS } from "./simplize.ts";
 import { applySnapshot, applyMappedSector } from "./live-provider.ts";
 import {
   formatIndex,
@@ -919,6 +919,93 @@ test("curated summaries fetch the full list; sector fill advances per call (mock
     assert.equal(fetched2, MAX_SECTOR_FETCH_PER_CALL);
     // second call covers the next batch; total known now 80
     assert.equal(s2.size, MAX_SECTOR_FETCH_PER_CALL * 2);
+  } finally {
+    globalThis.fetch = original;
+    clearSimplizeSectorStore();
+  }
+});
+
+test("sector failures are not cached for 24h and are retried after recovery; successful unmapped is cached", async () => {
+  clearSimplizeSectorStore();
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  let now = 1_700_000_000_000;
+  Date.now = () => now;
+  let fail = true;
+  const calls: string[] = [];
+  globalThis.fetch = async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+    if (fail) return new Response("no", { status: 429 });
+    const sym = url.split("/").pop() ?? "X";
+    return new Response(
+      JSON.stringify({
+        status: 200,
+        data: { ticker: sym, bcEconomicSectorName: "Unknown Industry" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  };
+  try {
+    const syms = ["F1", "F2"];
+    const r1 = await fetchSimplizeSectors(syms);
+    assert.equal(r1.size, 0);
+    assert.equal(calls.length, 2);
+
+    // Still inside the short failure TTL: no retry
+    const before = calls.length;
+    const r2 = await fetchSimplizeSectors(syms);
+    assert.equal(r2.size, 0);
+    assert.equal(calls.length, before);
+
+    // Advance past the failure TTL and recover
+    now += SECTOR_FAILURE_TTL_MS + 1;
+    fail = false;
+    const r3 = await fetchSimplizeSectors(syms);
+    assert.equal(r3.size, 2);
+    assert.equal(r3.get("F1"), UNCLASSIFIED_SECTOR);
+    assert.equal(calls.length, before + 2);
+
+    // Successful unmapped is cached: no further requests
+    const before4 = calls.length;
+    const r4 = await fetchSimplizeSectors(syms);
+    assert.equal(r4.size, 2);
+    assert.equal(r4.get("F1"), UNCLASSIFIED_SECTOR);
+    assert.equal(calls.length, before4);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+    clearSimplizeSectorStore();
+  }
+});
+
+test("concurrent sector fetches share in-flight requests", async () => {
+  clearSimplizeSectorStore();
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async (input: RequestInfo | URL) => {
+    calls += 1;
+    const sym = String(input).split("/").pop() ?? "X";
+    await new Promise((r) => setTimeout(r, 20));
+    return new Response(
+      JSON.stringify({
+        status: 200,
+        data: { ticker: sym, bcEconomicSectorName: "Năng lượng" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  };
+  try {
+    const syms = Array.from({ length: 40 }, (_, i) => `Q${String(i).padStart(2, "0")}`);
+    const [a, b, c] = await Promise.all([
+      fetchSimplizeSectors(syms),
+      fetchSimplizeSectors(syms),
+      fetchSimplizeSectors(syms),
+    ]);
+    assert.equal(calls, 40);
+    assert.equal(a.size, 40);
+    assert.equal(b.size, 40);
+    assert.equal(c.size, 40);
   } finally {
     globalThis.fetch = original;
     clearSimplizeSectorStore();

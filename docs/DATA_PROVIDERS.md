@@ -152,4 +152,4 @@ No additional rules were invented to force these into the curated labels. Curate
 ### Coverage timing
 
 - Curated 69: full fundamentals fetch on the first overlay call (same as main), then 30-minute cache.
-- Non-curated sectors: per-symbol store, 24-hour TTL, up to 40 new symbols per overlay call. With ~1,450 non-curated names, full coverage requires roughly 1,450 / 40 ≈ 37 successful overlay cycles. The store is in-memory and resets on process restart.
+- Non-curated sectors: per-symbol store, 24-hour TTL on a successful response (including a legitimate unmapped "—"), up to 40 new symbols per overlay call. Transient failures (timeout, HTTP error, schema fail) are stored only with a 5-minute TTL and omitted from the result, so a recovered source is retried and a permanently failing symbol is not hit on every call. Concurrent overlay calls share in-flight requests. With ~1,450 non-curated names, full coverage requires roughly 1,450 / 40 ≈ 37 successful overlay cycles. The store is in-memory and resets on process restart.

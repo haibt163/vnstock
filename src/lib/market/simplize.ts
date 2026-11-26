@@ -28,6 +28,8 @@ const HEADERS = {
 const TTL = 30 * 60_000;
 /** Sector labels change rarely. Long TTL, separate from the 30-min fundamentals cache. */
 export const SECTOR_TTL_MS = 24 * 60 * 60 * 1000;
+/** Transient failures are not cached for 24h. Short TTL so a recovered source is retried, but a permanently failing symbol is not hit on every call. */
+export const SECTOR_FAILURE_TTL_MS = 5 * 60 * 1000;
 /** Max new sector requests per call. Keeps work inside the overlay timeout and avoids storms. */
 export const MAX_SECTOR_FETCH_PER_CALL = 40;
 
@@ -141,40 +143,87 @@ export async function fetchSimplizeSummaries(symbols: string[]): Promise<Map<str
 }
 
 interface SectorEntry {
-  sector: string;
+  /** null = last request failed (timeout / HTTP / schema). Not a mapped "—". */
+  sector: string | null;
   expires: number;
 }
 
-/** Per-symbol sector store. Long TTL. Independent of the 30-min fundamentals cache. */
+/** Per-symbol sector store. Long TTL on success; short TTL on failure. */
 const sectorStore = new Map<string, SectorEntry>();
+/** In-flight guard so concurrent callers share one request per symbol. */
+const sectorInflight = new Map<string, Promise<string | null>>();
 
-/** Test-only. Clears the in-memory sector store. */
+/** Test-only. Clears the in-memory sector store and any in-flight entries. */
 export function clearSimplizeSectorStore(): void {
   sectorStore.clear();
+  sectorInflight.clear();
+}
+
+/**
+ * Start or join a single-symbol sector fetch.
+ * On success (including a legitimate unmapped "—"), stores the 24h entry.
+ * On failure, stores a short-TTL negative entry and returns null.
+ * Concurrent callers for the same symbol share one promise.
+ */
+function startOrJoinSector(sym: string): Promise<string | null> {
+  const existing = sectorInflight.get(sym);
+  if (existing) return existing;
+  const p = (async () => {
+    const snap = await fetchSimplizeSummary(sym);
+    if (snap) {
+      sectorStore.set(sym, { sector: snap.mappedSector, expires: Date.now() + SECTOR_TTL_MS });
+      return snap.mappedSector;
+    }
+    sectorStore.set(sym, { sector: null, expires: Date.now() + SECTOR_FAILURE_TTL_MS });
+    return null;
+  })().finally(() => {
+    sectorInflight.delete(sym);
+  });
+  sectorInflight.set(sym, p);
+  return p;
 }
 
 /**
  * Progressive sector fill for non-curated names.
- * Each call returns already-known sectors and fetches up to MAX_SECTOR_FETCH_PER_CALL
- * missing ones. Not gated by the 30-minute fundamentals cache. Store resets on restart.
+ * Each call returns already-known successful sectors and starts up to
+ * MAX_SECTOR_FETCH_PER_CALL new fetches. Failures are omitted from the
+ * result and retried after a short TTL. Concurrent calls share in-flight
+ * requests. Store resets on restart.
  */
 export async function fetchSimplizeSectors(symbols: string[]): Promise<Map<string, string>> {
   const now = Date.now();
   const result = new Map<string, string>();
-  const missing: string[] = [];
+  const toStart: string[] = [];
+  const waiting: Array<Promise<void>> = [];
+
   for (const sym of symbols) {
     const hit = sectorStore.get(sym);
-    if (hit && hit.expires > now) result.set(sym, hit.sector);
-    else missing.push(sym);
+    if (hit && hit.expires > now) {
+      if (hit.sector !== null) result.set(sym, hit.sector);
+      continue;
+    }
+    const pending = sectorInflight.get(sym);
+    if (pending) {
+      waiting.push(
+        pending.then((sector) => {
+          if (sector !== null) result.set(sym, sector);
+        }),
+      );
+      continue;
+    }
+    toStart.push(sym);
   }
-  const toFetch = missing.slice(0, MAX_SECTOR_FETCH_PER_CALL);
-  if (toFetch.length) {
-    await mapPool(toFetch, 10, async (sym) => {
-      const snap = await fetchSimplizeSummary(sym);
-      const sector = snap?.mappedSector ?? UNCLASSIFIED_SECTOR;
-      sectorStore.set(sym, { sector, expires: now + SECTOR_TTL_MS });
-      result.set(sym, sector);
-    });
+
+  const batch = toStart.slice(0, MAX_SECTOR_FETCH_PER_CALL);
+  if (batch.length) {
+    waiting.push(
+      mapPool(batch, 10, async (sym) => {
+        const sector = await startOrJoinSector(sym);
+        if (sector !== null) result.set(sym, sector);
+      }).then(() => undefined),
+    );
   }
+
+  await Promise.all(waiting);
   return result;
 }
