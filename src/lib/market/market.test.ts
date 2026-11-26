@@ -16,7 +16,8 @@ import { deriveTechnicals, rsi, sma } from "./technicals.ts";
 import { isMarketOpen, sessionPhaseAt } from "./session.ts";
 import { contrastRatio, CONTRAST_PAIRS } from "./contrast.ts";
 import { boardLotToShares, boardPriceToVnd, parseIndexOt, classifyFetchError, fallbackReasonTag, parseVpsQuotePayload } from "./vps.ts";
-import { mapSimplizeSector } from "./simplize.ts";
+import { mapSimplizeSector, fetchSimplizeSummaries, fetchSimplizeSectors, clearSimplizeSectorStore, MAX_SECTOR_FETCH_PER_CALL } from "./simplize.ts";
+import { applySnapshot, applyMappedSector } from "./live-provider.ts";
 import {
   formatIndex,
   formatMarketCap,
@@ -833,4 +834,93 @@ test("Simplize sector mapping uses explicit table; unmapped stays —", () => {
     UNCLASSIFIED_SECTOR,
   );
   assert.equal(mapSimplizeSector({}), UNCLASSIFIED_SECTOR);
+});
+
+test("applySnapshot does not overwrite curated sector; applyMappedSector fills only unclassified non-curated", () => {
+  const curatedRow = row({ symbol: "VCB", sector: "Banks", price: 60000, pe: null, marketCap: null });
+  const snap = {
+    marketCap: 1,
+    pe: 10,
+    pb: 1,
+    roe: 15,
+    dividendYield: 2,
+    eps: 6000,
+    bookValue: 30000,
+    debtToEquity: null,
+    high52w: null,
+    low52w: null,
+    sharesOutstanding: 1000,
+    revenueGrowth: 5,
+    profitGrowth: 6,
+    asOf: "2026-11-26",
+    averageVolume: 100,
+    mappedSector: "Financials",
+  };
+  const after = applySnapshot(curatedRow, snap);
+  assert.equal(after.sector, "Banks");
+  assert.equal(after.pe, 10);
+  assert.notEqual(after.marketCap, null);
+
+  const nonCurated = row({ symbol: "ZZZ", sector: UNCLASSIFIED_SECTOR, price: 10000, pe: null });
+  const filled = applyMappedSector(nonCurated, "Energy");
+  assert.equal(filled.sector, "Energy");
+  assert.equal(filled.pe, null);
+
+  const stillBlank = applyMappedSector(nonCurated, UNCLASSIFIED_SECTOR);
+  assert.equal(stillBlank.sector, UNCLASSIFIED_SECTOR);
+  const noMap = applyMappedSector(nonCurated, undefined);
+  assert.equal(noMap.sector, UNCLASSIFIED_SECTOR);
+
+  // Curated is never touched by the sector path
+  const curatedUntouched = applyMappedSector(curatedRow, "Energy");
+  assert.equal(curatedUntouched.sector, "Banks");
+});
+
+test("curated summaries fetch the full list; sector fill advances per call (mocked fetch)", async () => {
+  clearSimplizeSectorStore();
+  const original = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+    const sym = url.split("/").pop() ?? "X";
+    return new Response(
+      JSON.stringify({
+        status: 200,
+        data: {
+          ticker: sym,
+          marketCap: 1,
+          peRatio: 10,
+          analysisUpdated: "26/11/2026",
+          bcEconomicSectorName: "Năng lượng",
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  };
+  try {
+    const curated = Array.from({ length: 69 }, (_, i) => `C${String(i).padStart(2, "0")}`);
+    const before = calls.length;
+    const summaries = await fetchSimplizeSummaries(curated);
+    const fetched = calls.length - before;
+    assert.equal(fetched, 69);
+    assert.equal(summaries.size, 69);
+
+    const nonCurated = Array.from({ length: 100 }, (_, i) => `N${String(i).padStart(3, "0")}`);
+    const before1 = calls.length;
+    const s1 = await fetchSimplizeSectors(nonCurated);
+    const fetched1 = calls.length - before1;
+    assert.equal(fetched1, MAX_SECTOR_FETCH_PER_CALL);
+    assert.equal(s1.size, MAX_SECTOR_FETCH_PER_CALL);
+
+    const before2 = calls.length;
+    const s2 = await fetchSimplizeSectors(nonCurated);
+    const fetched2 = calls.length - before2;
+    assert.equal(fetched2, MAX_SECTOR_FETCH_PER_CALL);
+    // second call covers the next batch; total known now 80
+    assert.equal(s2.size, MAX_SECTOR_FETCH_PER_CALL * 2);
+  } finally {
+    globalThis.fetch = original;
+    clearSimplizeSectorStore();
+  }
 });

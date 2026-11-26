@@ -98,8 +98,8 @@ function ViBody() {
             VN30: <code className="text-fg">getlistckindex/vn30</code> cùng host. Nếu endpoint lỗi, dùng rổ{" "}
             {VN30_SOURCE.name}, ngày {VN30_SOURCE.asOf}. {VN30_SOURCE.note}
           </li>
-          <li>Tên và ngành của 69 mã cũ được giữ. Mã mới lấy tên từ master VPS. Không có ngành thì để trống, không bịa.</li>
-          <li>P/E, vốn hóa chỉ được hỏi Simplize cho 69 mã cũ. Không gọi overlay cho toàn bộ sàn.</li>
+          <li>Tên và ngành của 69 mã cũ được giữ. Mã mới lấy tên từ master VPS. Ngành của mã mới được điền từ Simplize khi ánh xạ sạch tồn tại; không có thì để trống, không bịa.</li>
+          <li>P/E, vốn hóa chỉ được hỏi Simplize cho 69 mã cũ. Mã ngoài rổ 69 chỉ nhận nhãn ngành, theo lô có giới hạn.</li>
         </ul>
       </section>
 
@@ -232,10 +232,10 @@ function EnBody() {
             falls back to {VN30_SOURCE.name}, dated {VN30_SOURCE.asOf}. {VN30_SOURCE.note}
           </li>
           <li>
-            Names and sectors for the previous 69 names are kept. New names use the VPS master string. Missing sectors
-            stay blank. Nothing is invented.
+            Names and sectors for the previous 69 names are kept. New names use the VPS master string. Non-curated
+            sectors are filled from Simplize when a clean mapping exists; otherwise they stay blank. Nothing is invented.
           </li>
-          <li>Simplize EOD ratios are requested only for that curated set, not for every listed name.</li>
+          <li>Simplize EOD ratios are requested only for the curated 69. Non-curated names receive a sector label only, in bounded batches.</li>
         </ul>
       </section>
 

@@ -139,3 +139,17 @@ Additional verified samples: SSI/MBS/SHS (Tài chính / INVESTMENT / Chứng kho
 **Conclusion:** Simplize returns usable industry/sector metadata. VPS names feed does not. Branch A selected.
 
 Licensing/terms: Simplize usage rights for third-party apps remain undocumented (same caveat as existing fundamentals overlay). Do not treat as official exchange classification.
+
+### Known mapping differences (documented, not fixed by new rules)
+
+The mapping uses only observed Simplize fields and the existing app sector names. Two curated names illustrate where Simplize’s classification differs from the curated taxonomy:
+
+- **GMD** (curated: Logistics): Simplize returns `bcEconomicSectorName` = "Công nghiệp", `industryActivity` = "Cơ sở hạ tầng giao thông vận tải". The mapping therefore places similar non-curated port/infrastructure names in **Industrials**. Curated GMD keeps Logistics.
+- **REE** (curated: Industrials): Simplize returns `bcEconomicSectorName` = "Tiện ích". Non-curated names with the same field land in **Utilities**. Curated REE keeps Industrials.
+
+No additional rules were invented to force these into the curated labels. Curated precedence is preserved. If a tighter Logistics rule is later desired, it should be based on further observed `industryActivity` strings, not inference.
+
+### Coverage timing
+
+- Curated 69: full fundamentals fetch on the first overlay call (same as main), then 30-minute cache.
+- Non-curated sectors: per-symbol store, 24-hour TTL, up to 40 new symbols per overlay call. With ~1,450 non-curated names, full coverage requires roughly 1,450 / 40 ≈ 37 successful overlay cycles. The store is in-memory and resets on process restart.
