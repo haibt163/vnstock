@@ -90,7 +90,7 @@ function liveAttribution(
     universe.scope === "vps-board"
       ? `Listed universe from VPS getlistckindex (HOSE ${universe.counts.HOSE}, HNX ${universe.counts.HNX}, UPCoM ${universe.counts.UPCoM}). Names without a last print stay listed with blank quote fields. They are not priced at 0 and are not counted in breadth, gainers, or volume.`
       : "VPS listing endpoints failed. Universe fell back to the curated 69 names.",
-    "Sectors and the curated company names cover the previous 69-name set only. Other names use the VPS master name and have no sector.",
+    "Sectors for non-curated names are filled from Simplize industry fields when a clean mapping exists (Banks, Energy, …); unmapped stay —. Curated 69 always take precedence. See docs/DATA_PROVIDERS.md.",
     "EOD valuation is requested only for that curated set. Simplize is not fanned out across the full board.",
     overlay.covered > 0
       ? "Valuation overlay: market cap = live price × shares; P/E = price / EPS; P/B = price / book. Shares, EPS, book, ROE, yield and growth come from a Simplize EOD snapshot (not an official exchange feed; usage rights unclear)."
@@ -228,7 +228,7 @@ async function loadQuoteBundle(universe: SecurityUniverse): Promise<QuoteBundle>
 }
 
 function applySnapshot(row: ScreenerRow, snap: SimplizeSnapshot): ScreenerRow {
-  const { asOf: _asOf, averageVolume, ...fund } = snap;
+  const { asOf: _asOf, averageVolume, mappedSector, ...fund } = snap;
   const valued = applyLiveValuation(
     {
       ...EMPTY_FUNDAMENTALS,
@@ -238,7 +238,12 @@ function applySnapshot(row: ScreenerRow, snap: SimplizeSnapshot): ScreenerRow {
     },
     row.price,
   );
-  return { ...row, ...valued, averageVolume: averageVolume ?? row.averageVolume };
+  // Curated sectors always win. Only fill UNCLASSIFIED from Simplize mapping.
+  const sector =
+    row.sector === UNCLASSIFIED_SECTOR && mappedSector && mappedSector !== UNCLASSIFIED_SECTOR
+      ? mappedSector
+      : row.sector;
+  return { ...row, ...valued, averageVolume: averageVolume ?? row.averageVolume, sector };
 }
 
 async function overlaySimplize(rows: ScreenerRow[]): Promise<{
@@ -246,7 +251,13 @@ async function overlaySimplize(rows: ScreenerRow[]): Promise<{
   covered: number;
   asOf: string | null;
 }> {
-  const targets = rows.filter((row) => UNIVERSE_BY_SYMBOL[row.symbol]);
+  // Prefer curated names (existing behaviour) then unclassified names that still need a sector.
+  // Fetch is bounded inside fetchSimplizeSummaries (max 40 new per call + accumulating cache).
+  const curated = rows.filter((row) => UNIVERSE_BY_SYMBOL[row.symbol]);
+  const needSector = rows.filter(
+    (row) => !UNIVERSE_BY_SYMBOL[row.symbol] && row.sector === UNCLASSIFIED_SECTOR,
+  );
+  const targets = [...curated, ...needSector];
   if (targets.length === 0) return { rows, covered: 0, asOf: null };
   try {
     const map = await withTimeout(

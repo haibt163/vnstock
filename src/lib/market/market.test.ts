@@ -16,6 +16,7 @@ import { deriveTechnicals, rsi, sma } from "./technicals.ts";
 import { isMarketOpen, sessionPhaseAt } from "./session.ts";
 import { contrastRatio, CONTRAST_PAIRS } from "./contrast.ts";
 import { boardLotToShares, boardPriceToVnd, parseIndexOt, classifyFetchError, fallbackReasonTag, parseVpsQuotePayload } from "./vps.ts";
+import { mapSimplizeSector } from "./simplize.ts";
 import {
   formatIndex,
   formatMarketCap,
@@ -752,4 +753,84 @@ test("VPS fetch errors classify into cascade reasons", () => {
   assert.equal(fallbackReasonTag("vps_history_thin (bars=2)"), "no_usable_quote");
   assert.equal(fallbackReasonTag("fetch failed"), "unknown");
   assert.equal(fallbackReasonTag(undefined), "unknown");
+});
+
+test("Simplize sector mapping uses explicit table; unmapped stays —", () => {
+  assert.equal(
+    mapSimplizeSector({
+      bcEconomicSectorName: "Tài chính",
+      bcIndustryGroupType: "BANK",
+      industryActivity: "Tài chính ngân hàng",
+    }),
+    "Banks",
+  );
+  assert.equal(
+    mapSimplizeSector({
+      bcEconomicSectorName: "Tài chính",
+      bcIndustryGroupType: "INVESTMENT",
+      industryActivity: "Chứng khoán và Ngân hàng đầu tư",
+    }),
+    "Financials",
+  );
+  assert.equal(
+    mapSimplizeSector({
+      bcEconomicSectorName: "Công nghệ",
+      industryActivity: "Dịch vụ Viễn thông",
+      bcIndustryGroupSlug: "dich-vu-vien-thong",
+    }),
+    "Telecom",
+  );
+  assert.equal(
+    mapSimplizeSector({
+      bcEconomicSectorName: "Công nghệ",
+      industryActivity: "Phần mềm và dịch vụ CNTT",
+    }),
+    "Technology",
+  );
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Năng lượng" }),
+    "Energy",
+  );
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Nguyên vật liệu" }),
+    "Materials",
+  );
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Hàng hóa thiết yếu" }),
+    "Consumer Staples",
+  );
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Hàng hóa không thiết yếu" }),
+    "Consumer Discretionary",
+  );
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Bất động sản" }),
+    "Real Estate",
+  );
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Tiện ích" }),
+    "Utilities",
+  );
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Chăm sóc sức khỏe" }),
+    "Healthcare",
+  );
+  assert.equal(
+    mapSimplizeSector({
+      bcEconomicSectorName: "Công nghiệp",
+      industryActivity: "Vận chuyển hàng hóa và Giao nhận",
+      bcIndustryGroupSlug: "van-chuyen-hang-hoa-va-giao-nhan",
+    }),
+    "Logistics",
+  );
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Công nghiệp" }),
+    "Industrials",
+  );
+  // Unmapped / unknown stays explicit missing
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Something Else" }),
+    UNCLASSIFIED_SECTOR,
+  );
+  assert.equal(mapSimplizeSector({}), UNCLASSIFIED_SECTOR);
 });

@@ -98,3 +98,44 @@ Display (unit-in-header): volume is a share count; turnover and market cap are *
 - `mock`: deterministic fixture, DEMO badge
 - `ssi` without keys: demo, **labelled as not FastConnect** — never implied
 - `ssi` with keys: token client exists; quotes still use the VPS/Yahoo cascade until a credentialed FastConnect quote adapter is implemented
+
+## Sector metadata probe (2026-11-26, read-only)
+
+VERIFIED from live responses of already-integrated providers. No field names guessed.
+
+### VPS `getlistallstock`
+
+Endpoint: `https://bgapidatafeed.vps.com.vn/getlistallstock`
+
+Payload is a JSON array (observed length ~3785). Sample rows (HOSE/HNX/UPCoM):
+
+| Field | Sample values |
+|---|---|
+| stock_code | VCB, HPG, NVB, PVS, VGI, ACV |
+| name_vn | Ngân hàng TMCP Ngoại Thương Việt Nam, ... |
+| name_en | Ngân hàng Thương mại Cổ phần Ngoại Thương Việt Nam, ... |
+| name_short | VCB Joint Stock Company, ... |
+| type | S (equity) |
+| post_to | HOSE, HNX, UPCOM |
+| C | 1 (HOSE), 2 (HNX), 3 (UPCOM) |
+
+**No industry, sector, category, or ICB/GICS field is present.** Names and type only. UNVERIFIED for any other undocumented VPS endpoint.
+
+### Simplize `GET /api/company/summary/{ticker}`
+
+Already integrated for EOD fundamentals overlay (schema uses `.passthrough()`). Live responses for multiple tickers on each exchange contain sector-related fields in `data`:
+
+| Field | Example (VCB) | Example (HPG) | Example (FPT) | Example (VGI) | Example (DHG) |
+|---|---|---|---|---|---|
+| bcEconomicSectorName | Tài chính | Nguyên vật liệu | Công nghệ | Công nghệ | Chăm sóc sức khỏe |
+| bcIndustryGroupType | BANK | MANUFACTURING | MANUFACTURING | MANUFACTURING | MANUFACTURING |
+| industryActivity | Tài chính ngân hàng | Kim loại và Khai khoáng | Phần mềm và dịch vụ CNTT | Dịch vụ Viễn thông | Dược phẩm |
+| bcIndustryGroupSlug | tai-chinh-ngan-hang | kim-loai-va-khai-khoang | phan-mem-va-dich-vu-cntt | dich-vu-vien-thong | duoc-pham |
+| bcIndustryGroupCode | 551010 | 512010 | 572010 | 574010 | — |
+| stockExchange | HOSE | HOSE | HOSE | UPCOM | — |
+
+Additional verified samples: SSI/MBS/SHS (Tài chính / INVESTMENT / Chứng khoán...), PVI (Tài chính / INSURANCE / Bảo hiểm), GAS/BSR/PLX (Năng lượng / Dầu và Khí đốt), VNM/SAB/MSN/SBT (Hàng hóa thiết yếu), MWG/FRT (Hàng hóa không thiết yếu), VHM/NVL/KBC (Bất động sản), REE/POW (Tiện ích), ACV/HUT (Công nghiệp), MVN (Công nghiệp / Vận chuyển hàng hóa...), GMD (Công nghiệp / Cơ sở hạ tầng giao thông vận tải).
+
+**Conclusion:** Simplize returns usable industry/sector metadata. VPS names feed does not. Branch A selected.
+
+Licensing/terms: Simplize usage rights for third-party apps remain undocumented (same caveat as existing fundamentals overlay). Do not treat as official exchange classification.
