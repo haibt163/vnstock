@@ -7,7 +7,7 @@ import { isMarketOpen, makeAsOf, sessionPhaseAt } from "./session.ts";
 import { fetchVpsHistory, fetchVpsIndex, fetchVpsQuotes, classifyFetchError } from "./vps.ts";
 import type { VpsQuote } from "./vps.ts";
 import { fetchYahooHistory, fetchYahooIndex, fetchYahooQuotes } from "./yahoo.ts";
-import { fetchSimplizeSummaries, type SimplizeSnapshot } from "./simplize.ts";
+import { fetchSimplizeSummaries, fetchSimplizeSectors, type SimplizeSnapshot } from "./simplize.ts";
 import {
   alignHistoryToLast,
   applyLiveValuation,
@@ -90,8 +90,8 @@ function liveAttribution(
     universe.scope === "vps-board"
       ? `Listed universe from VPS getlistckindex (HOSE ${universe.counts.HOSE}, HNX ${universe.counts.HNX}, UPCoM ${universe.counts.UPCoM}). Names without a last print stay listed with blank quote fields. They are not priced at 0 and are not counted in breadth, gainers, or volume.`
       : "VPS listing endpoints failed. Universe fell back to the curated 69 names.",
-    "Sectors and the curated company names cover the previous 69-name set only. Other names use the VPS master name and have no sector.",
-    "EOD valuation is requested only for that curated set. Simplize is not fanned out across the full board.",
+    "Sectors for non-curated names are filled from Simplize industry fields when a clean mapping exists (Banks, Energy, …); unmapped stay —. Curated 69 always take precedence. See docs/DATA_PROVIDERS.md.",
+    "EOD valuation (market cap, P/E, P/B, ROE, yield, growth) is requested only for the curated 69. Non-curated names receive a sector label only, in bounded batches.",
     overlay.covered > 0
       ? "Valuation overlay: market cap = live price × shares; P/E = price / EPS; P/B = price / book. Shares, EPS, book, ROE, yield and growth come from a Simplize EOD snapshot (not an official exchange feed; usage rights unclear)."
       : "P/E, P/B, ROE, dividend yield and market cap are omitted when the EOD overlay is unavailable.",
@@ -227,8 +227,9 @@ async function loadQuoteBundle(universe: SecurityUniverse): Promise<QuoteBundle>
   });
 }
 
-function applySnapshot(row: ScreenerRow, snap: SimplizeSnapshot): ScreenerRow {
-  const { asOf: _asOf, averageVolume, ...fund } = snap;
+/** Valuation overlay for curated rows. Does not change sector. Matches main. */
+export function applySnapshot(row: ScreenerRow, snap: SimplizeSnapshot): ScreenerRow {
+  const { asOf: _asOf, averageVolume, mappedSector: _mapped, ...fund } = snap;
   const valued = applyLiveValuation(
     {
       ...EMPTY_FUNDAMENTALS,
@@ -241,31 +242,72 @@ function applySnapshot(row: ScreenerRow, snap: SimplizeSnapshot): ScreenerRow {
   return { ...row, ...valued, averageVolume: averageVolume ?? row.averageVolume };
 }
 
+/**
+ * Sector-only fill for a non-curated row. Curated sector is never overwritten.
+ * Unmapped or missing stays "—".
+ */
+export function applyMappedSector(row: ScreenerRow, mappedSector: string | undefined): ScreenerRow {
+  if (UNIVERSE_BY_SYMBOL[row.symbol]) return row;
+  if (row.sector !== UNCLASSIFIED_SECTOR) return row;
+  if (!mappedSector || mappedSector === UNCLASSIFIED_SECTOR) return row;
+  return { ...row, sector: mappedSector };
+}
+
 async function overlaySimplize(rows: ScreenerRow[]): Promise<{
   rows: ScreenerRow[];
   covered: number;
   asOf: string | null;
 }> {
-  const targets = rows.filter((row) => UNIVERSE_BY_SYMBOL[row.symbol]);
-  if (targets.length === 0) return { rows, covered: 0, asOf: null };
-  try {
-    const map = await withTimeout(
-      fetchSimplizeSummaries(targets.map((r) => r.symbol)),
-      OVERLAY_WAIT_MS,
-    );
-    let covered = 0;
-    let asOf: string | null = null;
-    const next = rows.map((row) => {
-      const snap = map.get(row.symbol);
-      if (!snap) return row;
-      covered += 1;
-      if (!asOf && snap.asOf) asOf = snap.asOf;
-      return applySnapshot(row, snap);
-    });
-    return { rows: next, covered, asOf };
-  } catch {
-    return { rows, covered: 0, asOf: null };
+  const curated = rows.filter((row) => UNIVERSE_BY_SYMBOL[row.symbol]);
+  const needSector = rows.filter(
+    (row) => !UNIVERSE_BY_SYMBOL[row.symbol] && row.sector === UNCLASSIFIED_SECTOR,
+  );
+
+  let summaryMap = new Map<string, SimplizeSnapshot>();
+  let asOf: string | null = null;
+  if (curated.length) {
+    try {
+      summaryMap = await withTimeout(
+        fetchSimplizeSummaries(curated.map((r) => r.symbol)),
+        OVERLAY_WAIT_MS,
+      );
+      // asOf is the first available snapshot in map iteration order (completion order).
+      // Not guaranteed to match main's row-order pick; the value is informational.
+      for (const snap of summaryMap.values()) {
+        if (snap.asOf) {
+          asOf = snap.asOf;
+          break;
+        }
+      }
+    } catch {
+      summaryMap = new Map();
+    }
   }
+
+  let sectorMap = new Map<string, string>();
+  if (needSector.length) {
+    try {
+      sectorMap = await withTimeout(
+        fetchSimplizeSectors(needSector.map((r) => r.symbol)),
+        OVERLAY_WAIT_MS,
+      );
+    } catch {
+      sectorMap = new Map();
+    }
+  }
+
+  let covered = 0;
+  const next = rows.map((row) => {
+    const snap = summaryMap.get(row.symbol);
+    if (snap) {
+      covered += 1;
+      return applySnapshot(row, snap);
+    }
+    const mapped = sectorMap.get(row.symbol);
+    if (mapped) return applyMappedSector(row, mapped);
+    return row;
+  });
+  return { rows: next, covered, asOf };
 }
 
 async function loadLiveBoard() {

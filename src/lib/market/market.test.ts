@@ -16,6 +16,8 @@ import { deriveTechnicals, rsi, sma } from "./technicals.ts";
 import { isMarketOpen, sessionPhaseAt } from "./session.ts";
 import { contrastRatio, CONTRAST_PAIRS } from "./contrast.ts";
 import { boardLotToShares, boardPriceToVnd, parseIndexOt, classifyFetchError, fallbackReasonTag, parseVpsQuotePayload } from "./vps.ts";
+import { mapSimplizeSector, fetchSimplizeSummaries, fetchSimplizeSectors, clearSimplizeSectorStore, MAX_SECTOR_FETCH_PER_CALL, SECTOR_FAILURE_TTL_MS } from "./simplize.ts";
+import { applySnapshot, applyMappedSector } from "./live-provider.ts";
 import {
   formatIndex,
   formatMarketCap,
@@ -752,4 +754,260 @@ test("VPS fetch errors classify into cascade reasons", () => {
   assert.equal(fallbackReasonTag("vps_history_thin (bars=2)"), "no_usable_quote");
   assert.equal(fallbackReasonTag("fetch failed"), "unknown");
   assert.equal(fallbackReasonTag(undefined), "unknown");
+});
+
+test("Simplize sector mapping uses explicit table; unmapped stays —", () => {
+  assert.equal(
+    mapSimplizeSector({
+      bcEconomicSectorName: "Tài chính",
+      bcIndustryGroupType: "BANK",
+      industryActivity: "Tài chính ngân hàng",
+    }),
+    "Banks",
+  );
+  assert.equal(
+    mapSimplizeSector({
+      bcEconomicSectorName: "Tài chính",
+      bcIndustryGroupType: "INVESTMENT",
+      industryActivity: "Chứng khoán và Ngân hàng đầu tư",
+    }),
+    "Financials",
+  );
+  assert.equal(
+    mapSimplizeSector({
+      bcEconomicSectorName: "Công nghệ",
+      industryActivity: "Dịch vụ Viễn thông",
+      bcIndustryGroupSlug: "dich-vu-vien-thong",
+    }),
+    "Telecom",
+  );
+  assert.equal(
+    mapSimplizeSector({
+      bcEconomicSectorName: "Công nghệ",
+      industryActivity: "Phần mềm và dịch vụ CNTT",
+    }),
+    "Technology",
+  );
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Năng lượng" }),
+    "Energy",
+  );
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Nguyên vật liệu" }),
+    "Materials",
+  );
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Hàng hóa thiết yếu" }),
+    "Consumer Staples",
+  );
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Hàng hóa không thiết yếu" }),
+    "Consumer Discretionary",
+  );
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Bất động sản" }),
+    "Real Estate",
+  );
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Tiện ích" }),
+    "Utilities",
+  );
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Chăm sóc sức khỏe" }),
+    "Healthcare",
+  );
+  assert.equal(
+    mapSimplizeSector({
+      bcEconomicSectorName: "Công nghiệp",
+      industryActivity: "Vận chuyển hàng hóa và Giao nhận",
+      bcIndustryGroupSlug: "van-chuyen-hang-hoa-va-giao-nhan",
+    }),
+    "Logistics",
+  );
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Công nghiệp" }),
+    "Industrials",
+  );
+  // Unmapped / unknown stays explicit missing
+  assert.equal(
+    mapSimplizeSector({ bcEconomicSectorName: "Something Else" }),
+    UNCLASSIFIED_SECTOR,
+  );
+  assert.equal(mapSimplizeSector({}), UNCLASSIFIED_SECTOR);
+});
+
+test("applySnapshot does not overwrite curated sector; applyMappedSector fills only unclassified non-curated", () => {
+  const curatedRow = row({ symbol: "VCB", sector: "Banks", price: 60000, pe: null, marketCap: null });
+  const snap = {
+    marketCap: 1,
+    pe: 10,
+    pb: 1,
+    roe: 15,
+    dividendYield: 2,
+    eps: 6000,
+    bookValue: 30000,
+    debtToEquity: null,
+    high52w: null,
+    low52w: null,
+    sharesOutstanding: 1000,
+    revenueGrowth: 5,
+    profitGrowth: 6,
+    asOf: "2026-11-26",
+    averageVolume: 100,
+    mappedSector: "Financials",
+  };
+  const after = applySnapshot(curatedRow, snap);
+  assert.equal(after.sector, "Banks");
+  assert.equal(after.pe, 10);
+  assert.notEqual(after.marketCap, null);
+
+  const nonCurated = row({ symbol: "ZZZ", sector: UNCLASSIFIED_SECTOR, price: 10000, pe: null });
+  const filled = applyMappedSector(nonCurated, "Energy");
+  assert.equal(filled.sector, "Energy");
+  assert.equal(filled.pe, null);
+
+  const stillBlank = applyMappedSector(nonCurated, UNCLASSIFIED_SECTOR);
+  assert.equal(stillBlank.sector, UNCLASSIFIED_SECTOR);
+  const noMap = applyMappedSector(nonCurated, undefined);
+  assert.equal(noMap.sector, UNCLASSIFIED_SECTOR);
+
+  // Curated is never touched by the sector path
+  const curatedUntouched = applyMappedSector(curatedRow, "Energy");
+  assert.equal(curatedUntouched.sector, "Banks");
+});
+
+test("curated summaries fetch the full list; sector fill advances per call (mocked fetch)", async () => {
+  clearSimplizeSectorStore();
+  const original = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+    const sym = url.split("/").pop() ?? "X";
+    return new Response(
+      JSON.stringify({
+        status: 200,
+        data: {
+          ticker: sym,
+          marketCap: 1,
+          peRatio: 10,
+          analysisUpdated: "26/11/2026",
+          bcEconomicSectorName: "Năng lượng",
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  };
+  try {
+    const curated = Array.from({ length: 69 }, (_, i) => `C${String(i).padStart(2, "0")}`);
+    const before = calls.length;
+    const summaries = await fetchSimplizeSummaries(curated);
+    const fetched = calls.length - before;
+    assert.equal(fetched, 69);
+    assert.equal(summaries.size, 69);
+
+    const nonCurated = Array.from({ length: 100 }, (_, i) => `N${String(i).padStart(3, "0")}`);
+    const before1 = calls.length;
+    const s1 = await fetchSimplizeSectors(nonCurated);
+    const fetched1 = calls.length - before1;
+    assert.equal(fetched1, MAX_SECTOR_FETCH_PER_CALL);
+    assert.equal(s1.size, MAX_SECTOR_FETCH_PER_CALL);
+
+    const before2 = calls.length;
+    const s2 = await fetchSimplizeSectors(nonCurated);
+    const fetched2 = calls.length - before2;
+    assert.equal(fetched2, MAX_SECTOR_FETCH_PER_CALL);
+    // second call covers the next batch; total known now 80
+    assert.equal(s2.size, MAX_SECTOR_FETCH_PER_CALL * 2);
+  } finally {
+    globalThis.fetch = original;
+    clearSimplizeSectorStore();
+  }
+});
+
+test("sector failures are not cached for 24h and are retried after recovery; successful unmapped is cached", async () => {
+  clearSimplizeSectorStore();
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  let now = 1_700_000_000_000;
+  Date.now = () => now;
+  let fail = true;
+  const calls: string[] = [];
+  globalThis.fetch = async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+    if (fail) return new Response("no", { status: 429 });
+    const sym = url.split("/").pop() ?? "X";
+    return new Response(
+      JSON.stringify({
+        status: 200,
+        data: { ticker: sym, bcEconomicSectorName: "Unknown Industry" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  };
+  try {
+    const syms = ["F1", "F2"];
+    const r1 = await fetchSimplizeSectors(syms);
+    assert.equal(r1.size, 0);
+    assert.equal(calls.length, 2);
+
+    // Still inside the short failure TTL: no retry
+    const before = calls.length;
+    const r2 = await fetchSimplizeSectors(syms);
+    assert.equal(r2.size, 0);
+    assert.equal(calls.length, before);
+
+    // Advance past the failure TTL and recover
+    now += SECTOR_FAILURE_TTL_MS + 1;
+    fail = false;
+    const r3 = await fetchSimplizeSectors(syms);
+    assert.equal(r3.size, 2);
+    assert.equal(r3.get("F1"), UNCLASSIFIED_SECTOR);
+    assert.equal(calls.length, before + 2);
+
+    // Successful unmapped is cached: no further requests
+    const before4 = calls.length;
+    const r4 = await fetchSimplizeSectors(syms);
+    assert.equal(r4.size, 2);
+    assert.equal(r4.get("F1"), UNCLASSIFIED_SECTOR);
+    assert.equal(calls.length, before4);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+    clearSimplizeSectorStore();
+  }
+});
+
+test("concurrent sector fetches share in-flight requests", async () => {
+  clearSimplizeSectorStore();
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async (input: RequestInfo | URL) => {
+    calls += 1;
+    const sym = String(input).split("/").pop() ?? "X";
+    await new Promise((r) => setTimeout(r, 20));
+    return new Response(
+      JSON.stringify({
+        status: 200,
+        data: { ticker: sym, bcEconomicSectorName: "Năng lượng" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  };
+  try {
+    const syms = Array.from({ length: 40 }, (_, i) => `Q${String(i).padStart(2, "0")}`);
+    const [a, b, c] = await Promise.all([
+      fetchSimplizeSectors(syms),
+      fetchSimplizeSectors(syms),
+      fetchSimplizeSectors(syms),
+    ]);
+    assert.equal(calls, 40);
+    assert.equal(a.size, 40);
+    assert.equal(b.size, 40);
+    assert.equal(c.size, 40);
+  } finally {
+    globalThis.fetch = original;
+    clearSimplizeSectorStore();
+  }
 });

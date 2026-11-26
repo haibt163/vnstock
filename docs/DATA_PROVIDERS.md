@@ -98,3 +98,58 @@ Display (unit-in-header): volume is a share count; turnover and market cap are *
 - `mock`: deterministic fixture, DEMO badge
 - `ssi` without keys: demo, **labelled as not FastConnect** — never implied
 - `ssi` with keys: token client exists; quotes still use the VPS/Yahoo cascade until a credentialed FastConnect quote adapter is implemented
+
+## Sector metadata probe (2026-11-26, read-only)
+
+VERIFIED from live responses of already-integrated providers. No field names guessed.
+
+### VPS `getlistallstock`
+
+Endpoint: `https://bgapidatafeed.vps.com.vn/getlistallstock`
+
+Payload is a JSON array (observed length ~3785). Sample rows (HOSE/HNX/UPCoM):
+
+| Field | Sample values |
+|---|---|
+| stock_code | VCB, HPG, NVB, PVS, VGI, ACV |
+| name_vn | Ngân hàng TMCP Ngoại Thương Việt Nam, ... |
+| name_en | Ngân hàng Thương mại Cổ phần Ngoại Thương Việt Nam, ... |
+| name_short | VCB Joint Stock Company, ... |
+| type | S (equity) |
+| post_to | HOSE, HNX, UPCOM |
+| C | 1 (HOSE), 2 (HNX), 3 (UPCOM) |
+
+**No industry, sector, category, or ICB/GICS field is present.** Names and type only. UNVERIFIED for any other undocumented VPS endpoint.
+
+### Simplize `GET /api/company/summary/{ticker}`
+
+Already integrated for EOD fundamentals overlay (schema uses `.passthrough()`). Live responses for multiple tickers on each exchange contain sector-related fields in `data`:
+
+| Field | Example (VCB) | Example (HPG) | Example (FPT) | Example (VGI) | Example (DHG) |
+|---|---|---|---|---|---|
+| bcEconomicSectorName | Tài chính | Nguyên vật liệu | Công nghệ | Công nghệ | Chăm sóc sức khỏe |
+| bcIndustryGroupType | BANK | MANUFACTURING | MANUFACTURING | MANUFACTURING | MANUFACTURING |
+| industryActivity | Tài chính ngân hàng | Kim loại và Khai khoáng | Phần mềm và dịch vụ CNTT | Dịch vụ Viễn thông | Dược phẩm |
+| bcIndustryGroupSlug | tai-chinh-ngan-hang | kim-loai-va-khai-khoang | phan-mem-va-dich-vu-cntt | dich-vu-vien-thong | duoc-pham |
+| bcIndustryGroupCode | 551010 | 512010 | 572010 | 574010 | — |
+| stockExchange | HOSE | HOSE | HOSE | UPCOM | — |
+
+Additional verified samples: SSI/MBS/SHS (Tài chính / INVESTMENT / Chứng khoán...), PVI (Tài chính / INSURANCE / Bảo hiểm), GAS/BSR/PLX (Năng lượng / Dầu và Khí đốt), VNM/SAB/MSN/SBT (Hàng hóa thiết yếu), MWG/FRT (Hàng hóa không thiết yếu), VHM/NVL/KBC (Bất động sản), REE/POW (Tiện ích), ACV/HUT (Công nghiệp), MVN (Công nghiệp / Vận chuyển hàng hóa...), GMD (Công nghiệp / Cơ sở hạ tầng giao thông vận tải).
+
+**Conclusion:** Simplize returns usable industry/sector metadata. VPS names feed does not. Branch A selected.
+
+Licensing/terms: Simplize usage rights for third-party apps remain undocumented (same caveat as existing fundamentals overlay). Do not treat as official exchange classification.
+
+### Known mapping differences (documented, not fixed by new rules)
+
+The mapping uses only observed Simplize fields and the existing app sector names. Two curated names illustrate where Simplize’s classification differs from the curated taxonomy:
+
+- **GMD** (curated: Logistics): Simplize returns `bcEconomicSectorName` = "Công nghiệp", `industryActivity` = "Cơ sở hạ tầng giao thông vận tải". The mapping therefore places similar non-curated port/infrastructure names in **Industrials**. Curated GMD keeps Logistics.
+- **REE** (curated: Industrials): Simplize returns `bcEconomicSectorName` = "Tiện ích". Non-curated names with the same field land in **Utilities**. Curated REE keeps Industrials.
+
+No additional rules were invented to force these into the curated labels. Curated precedence is preserved. If a tighter Logistics rule is later desired, it should be based on further observed `industryActivity` strings, not inference.
+
+### Coverage timing
+
+- Curated 69: full fundamentals fetch on the first overlay call (same as main), then 30-minute cache.
+- Non-curated sectors: per-symbol store, 24-hour TTL on a successful response (including a legitimate unmapped "—"), up to 40 new symbols per overlay call. Transient failures (timeout, HTTP error, schema fail) are stored only with a 5-minute TTL and omitted from the result, so a recovered source is retried and a permanently failing symbol is not hit on every call. Concurrent overlay calls share in-flight requests. With ~1,450 non-curated names, full coverage requires roughly 1,450 / 40 ≈ 37 successful overlay cycles. The store is in-memory and resets on process restart.
